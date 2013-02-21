@@ -81,8 +81,7 @@ type
   UEHEMessage : record
     UEID:     AgentId;
     CID:      AgentId;
-    CH:	      AgentId;
-    RES:      AgentId;
+    CHRES:	  symkey;
     dhs:      dhs;
     key:      union { AgentId, symkey };
   end;
@@ -127,11 +126,10 @@ type
 
   UE : record
     state:    UEStates;
-    SNID:     AgentId;          -- agent with whom the initiator starts the
-    HEID:     AgentId;
-    CID:      AgentId;
-    AID:      AgentId;
+    SN:     AgentId;          -- agent with whom the initiator starts the
+    HE:     AgentId;
     dhs:      dhs;
+    -- UE's CID and AID are the same as its own ID
   end;                           --  protocol
 
   SNStates : enum {
@@ -144,9 +142,8 @@ type
 
   SN : record
     state:    SNStates;
-    HEIDs:    array[HEID] of AgentId;
-    CIDs:     array[UEID] of AgentId;
-    AIDs:     array[UEID] of AgentId;
+    HEs:    array[HEID] of AgentId;
+    CIDs:     array[UEID] of AgentId; -- mapping from CID to AID is just equality
     dhs:      array[UEID] of dhs;
   end;
 
@@ -178,52 +175,59 @@ var                                         -- state variables for
   adv: array[intruderId] of Intruder;       --  adversaries
 
 
+function hasKey(key: symkey, entity: AgentId): boolean;
+begin
+    return (isundefined(key) | key.entity1 = entity | key.entity2 = entity);
+end;
 
 --------------------------------------------------------------------------------
--- rules
+-- rules in order of messages
 --------------------------------------------------------------------------------
 
-
---------------------------------------------------------------------------------
--- behavior of initiators
-
--- initiator i starts protocol with responder or intruder j (step 3)
-ruleset i: InitiatorId do
+-- UE starts protocol with SN or intruder j (message M1)
+ruleset i: UEID do
   ruleset j: AgentId do
-    rule 20 "initiator starts protocol (step 3)"
+    ruleset k: AgentId do
+        rule 20 "UE starts protocol (message M1)"
 
-      ini[i].state = I_SLEEP &
-      !ismember(j,InitiatorId) &               -- only responders and intruders
-      multisetcount (l:net, true) < NetworkSize
+          UEs[i].state = UE_IDLE &
+          (ismember(j,SNID) | ismember(j,intruderId)) &               -- only responders and intruders
+          (ismember(k,HEID) | ismember(k,intruderId)) &
+          multisetcount (l:net, true) < NetworkSize
 
-    ==>
-    
-    var
-      outM: Message;   -- outgoing message
+        ==>
+        
+        var
+          outM: Message;   -- outgoing message
 
-    begin
-      undefine outM;
-      outM.source  := i;
-      outM.dest    := j;
-      outM.key     := j;
-      outM.mType   := M_NonceAddress;
-      outM.nonce1  := i;
-      outM.nonce2  := i;
+        begin
+          undefine outM;
+          outM.source := i;
+          outM.dest := j;
+          outM.mType := M1;
+          outM.uehe.UEID := i;
+          outM.uehe.CID := i;
+          outM.uehe.CHRES.entity1 := i;
+          outM.uehe.CHRES.entity2 := k;
+          outM.uehe.key := k;
+          outM.snue.HEID := k;
 
-      multisetadd (outM,net);
+          multisetadd (outM,net);
 
-      ini[i].state     := I_WAIT;
-      ini[i].responder := j;
+          UEs[i].state     := UE_WAIT;
+          UEs[i].SN := j;
+          UEs[i].HE := k;
+        end;
     end;
   end;
 end;
 
--- initiator i reacts to nonce received (steps 6/7)
-ruleset i: InitiatorId do
+-- SN responds to message (M1, M3, M5, or M7)
+ruleset i: SNID do
   choose j: net do
-    rule 20 "initiator reacts to nonce received (steps 6/7)"
+    rule 20 "SN responds to message (M1, M3, M5, or M7)"
 
-      ini[i].state = I_WAIT &
+      SNs[i].state = SN_IDLE &
       net[j].dest = i &
       ismember(net[j].source,IntruderId)
     ==>
@@ -236,25 +240,39 @@ ruleset i: InitiatorId do
       inM := net[j];
       multisetremove (j,net);
 
-      if inM.key=i then   -- message is encrypted with i*s key
+      if hasKey(inM.key, i) then   -- message is encrypted with i*s key
 
-        if inM.mType=M_NonceNonceAddress then   -- correct message type
-          if inM.nonce1=i &                     -- correct nonce and address
-             (!FIXED | inM.address=ini[i].responder) then
+        switch inM.mType
+        case M1: -- send M2
             undefine outM;
-            outM.source  := i;
-            outM.dest    := ini[i].responder;
-            outM.key     := ini[i].responder;
-            outM.mType   := M_Nonce;
-            outM.nonce1  := inM.nonce2;
-
-            multisetadd (outM,net);
-
-            ini[i].state := I_COMMIT;
-          else
-            --error "initiator received incorrect nonce"
-          end;
+            outM.source := i;
+            outM.dest := inM.snhe.HEID;
+            outM.key.entity1 := i;
+            outM.key.entity2 := inM.snhe.HEID;
+            outM.mType := M2;
+            outM.uehe := inM.uehe;
+            outM.snhe.DH := i;
+            SNs[i].state = SN_WAIT_HE1;
+        case M3: -- send M4
+            undefine outM;
+            outM.source := i;
+            outM.dest := inM.snhe.CID; -- broadcast? Question for Jason?
+            outM.mType := M4;
+            outM.uehe := inM.uehe;
+            outM.snue.CID := inM.snhe.CID;
+            outM.snue.AID := inM.snhe.CID;
+            outM.snue.key.entity1 = i;
+            outM.snue.key.entity2 = inM.snhe.CID; -- since in our case CID is the same as UEID
+            SNs[i].state = SN_WAIT_UE;
+        case M5:
+        
+        case M7:
+        
+        else:
+            error "SN received random message"
         end;
+
+        multisetadd (outM,net);
 
       end;
     end;
