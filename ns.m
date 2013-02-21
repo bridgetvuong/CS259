@@ -108,9 +108,9 @@ type
     mType:    MessageType;       -- type of message
     key:      symkey;              -- key used for encryption
 
-    uehe: UEHEMessage;
-    snhe: SNHEMessage;
-    snue: SNUEMessage;
+    uehe:     UEHEMessage;
+    snhe:     SNHEMessage;
+    snue:     SNUEMessage;
 
     -- Assume VP and Qid do not need to be passed, cryptography abstraction for IBE
   end;
@@ -121,17 +121,17 @@ type
 
   UEStates : enum {
     UE_IDLE,                     -- state after initialization
-    UE_WAIT,                      -- waiting for response from responder
-    UE_DONE                     -- initiator commits to session
+    UE_WAIT,                     -- waiting for response from responder
+    UE_DONE                      -- initiator commits to session
   };                             --  (thinks responder is authenticated)
 
   UE : record
-    state:     UEStates;
-    sn: AgentId;          -- agent with whom the initiator starts the
-    he: AgentId;
-    cid: AgentId;
-    aid: AgentId;
-    dhs: array[1..3] of AgentId;
+    state:    UEStates;
+    SNID:     AgentId;          -- agent with whom the initiator starts the
+    HEID:     AgentId;
+    CID:      AgentId;
+    AID:      AgentId;
+    dhs:      dhs;
   end;                           --  protocol
 
   SNStates : enum {
@@ -143,11 +143,11 @@ type
   };
 
   SN : record
-    state:     SNStates;
-    -- HEIDs:     array[AgentId] of AgentId;
-    CIDs: array[AgentId] of AgentId;
-    AIDs: array[AgentId] of AgentId;
-    dhs: array[AgentId] of array[]
+    state:    SNStates;
+    HEIDs:    array[HEID] of AgentId;
+    CIDs:     array[UEID] of AgentId;
+    AIDs:     array[UEID] of AgentId;
+    dhs:      array[UEID] of dhs;
   end;
 
   HEStates : enum {
@@ -158,7 +158,9 @@ type
 
   HE : record
     state:     HEStates;
-    initiator: AgentId;
+    SNIDs:     array[SNID] of AgentId;
+    UEIDs:     array[UEID] of AgentId;
+    dhs:       array[UEID] of dhs;
   end;
 
   Intruder : record
@@ -169,11 +171,10 @@ type
 
 -- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 var                                         -- state variables for
-  netA: multiset[NetworkSize] of Message;   --  network A-interface
-  netB: multiset[NetworkSize] of Message;   --  network B-interface
-  UEs: array[UEID] of UE;     	 	    --  UEs
-  SNs: array[SNID] of SN;     		    --  SNs
-  HEs: array[HEID] of HE;		    --  HEs
+  net: multiset[NetworkSize] of Message;    --  network
+  UEs: array[UEID] of UE;                   --  UEs
+  SNs: array[SNID] of SN;                   --  SNs
+  HEs: array[HEID] of HE;                   --  HEs
   adv: array[intruderId] of Intruder;       --  adversaries
 
 
