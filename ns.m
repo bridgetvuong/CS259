@@ -81,7 +81,7 @@ type
   UEHEMessage : record
     UEID:     AgentId;
     CID:      AgentId;
-    CHRES:	  symkey;
+    CHRES:    symkey;
     dhs:      dhs;
     key:      union { AgentId, symkey };
   end;
@@ -120,7 +120,7 @@ type
 
   UEStates : enum {
     UE_IDLE,                     -- state after initialization
-    UE_WAIT,                     -- waiting for response from responder
+    UE_WAIT_M4,                     -- waiting for response from responder
     UE_DONE                      -- initiator commits to session
   };                             --  (thinks responder is authenticated)
 
@@ -129,27 +129,26 @@ type
     SN:     AgentId;          -- agent with whom the initiator starts the
     HE:     AgentId;
     dhs:      dhs;
-    -- UE's CID and AID are the same as its own ID
+    -- UE*s CID and AID are the same as its own ID
   end;                           --  protocol
 
   SNStates : enum {
     SN_IDLE,
-    SN_WAIT_HE1,
-    SN_WAIT_UE,
-    SN_WAIT_HE2,
+    SN_WAIT_M3,
+    SN_WAIT_M5,
+    SN_WAIT_M7,
     SN_DONE
   };
 
   SN : record
     state:    SNStates;
-    HEs:    array[HEID] of AgentId;
-    CIDs:     array[UEID] of AgentId; -- mapping from CID to AID is just equality
-    dhs:      array[UEID] of dhs;
+    CIDtoHEID:     array[UEID] of AgentId; -- mapping from CID to AID is just equality
+    dhs:      array[UEID] of dhs; -- TODO: store in messages
   end;
 
   HEStates : enum {
     HE_IDLE,
-    HE_WAIT,
+    HE_WAIT_M6,
     HE_DONE
   };
 
@@ -157,7 +156,7 @@ type
     state:     HEStates;
     SNIDs:     array[SNID] of AgentId;
     UEIDs:     array[UEID] of AgentId;
-    dhs:       array[UEID] of dhs;
+    dhs:       array[UEID] of dhs; -- TODO: store in messages
   end;
 
   Intruder : record
@@ -181,8 +180,11 @@ begin
 end;
 
 --------------------------------------------------------------------------------
--- rules in order of messages
+-- rules
 --------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+-- behavior of UEs
 
 -- UE starts protocol with SN or intruder j (message M1)
 ruleset i: UEID do
@@ -214,7 +216,7 @@ ruleset i: UEID do
 
           multisetadd (outM,net);
 
-          UEs[i].state     := UE_WAIT;
+          UEs[i].state := UE_WAIT_M4;
           UEs[i].SN := j;
           UEs[i].HE := k;
         end;
@@ -222,12 +224,57 @@ ruleset i: UEID do
   end;
 end;
 
+-- UE responds to message M4
+ruleset i: UEID do
+    choose j: net do
+        rule 20 "UE responds to message M4"
+
+          UEs[i].state = UE_WAIT_M4 &
+	  ismember(net[j].source,IntruderId)
+
+        ==>
+        
+        var
+          outM: Message;   -- outgoing message
+	  inM:	Message;   -- incoming message
+
+        begin
+	  inM := net[j];
+      	  multisetremove (j,net);
+
+      	  if hasKey(inM.key, i) & inM.mtype = M4 & hasKey(inM.uehe.key, i) &
+             hasKey(inM.uehe.CHRES, i) & hasKey(inM.snue.key, i) &
+	     inM.uehe.CID = i & inM.snue.CID = i then
+             undefine outM;
+             outM.source := i;
+             outM.dest := inM.source;
+	     outM.key = inM.snue.key;
+             outM.mType := M5;
+             outM.uehe.CID := i;
+             outM.uehe.CHRES = inM.uehe.CHRES;
+             outM.uehe.key := inM.uehe.key;
+             outM.snue.AID := i;
+
+             multisetadd (outM,net);
+
+             UEs[i].state := UE_DONE;
+	     UEs[i].dhs := inM.uehe.dhs;
+	  else
+	     error "UE received message and stuff is wrong"
+	  end;
+        end;
+    end;
+  end;
+end;
+
+--------------------------------------------------------------------------------
+-- behavior of SNs
+
 -- SN responds to message (M1, M3, M5, or M7)
 ruleset i: SNID do
   choose j: net do
     rule 20 "SN responds to message (M1, M3, M5, or M7)"
 
-      SNs[i].state = SN_IDLE &
       net[j].dest = i &
       ismember(net[j].source,IntruderId)
     ==>
@@ -242,56 +289,80 @@ ruleset i: SNID do
 
       if hasKey(inM.key, i) then   -- message is encrypted with i*s key
 
+        undefine outM;
         switch inM.mType
         case M1: -- send M2
-            undefine outM;
-            outM.source := i;
-            outM.dest := inM.snhe.HEID;
-            outM.key.entity1 := i;
-            outM.key.entity2 := inM.snhe.HEID;
-            outM.mType := M2;
-            outM.uehe := inM.uehe;
-            outM.snhe.DH := i;
-            SNs[i].state = SN_WAIT_HE1;
+	    if SNs[i].state = SN_IDLE then
+               outM.source := i;
+               outM.dest := inM.snue.HEID;
+               outM.key.entity1 := i;
+               outM.key.entity2 := inM.snue.HEID;
+               outM.mType := M2;
+               outM.uehe := inM.uehe;
+               outM.snhe.DH := i;
+               SNs[i].state = SN_WAIT_M3;
+	       SNs[i].CIDtoHEID[inM.source] = inM.snue.HEID;
+	    else
+	       error "Received M1 in the wrong state"
+	    end;
         case M3: -- send M4
-            undefine outM;
-            outM.source := i;
-            outM.dest := inM.snhe.CID; -- broadcast? Question for Jason?
-            outM.mType := M4;
-            outM.uehe := inM.uehe;
-            outM.snue.CID := inM.snhe.CID;
-            outM.snue.AID := inM.snhe.CID;
-            outM.snue.key.entity1 = i;
-            outM.snue.key.entity2 = inM.snhe.CID; -- since in our case CID is the same as UEID
-            SNs[i].state = SN_WAIT_UE;
-        case M5:
-        
-        case M7:
-        
-        else:
+	    if SNs[i].state = SN_WAIT_M3 then
+               outM.source := i;
+               outM.dest := inM.snhe.CID; -- broadcast but just for state space constraints
+               outM.mType := M4;
+               outM.uehe := inM.uehe;
+               outM.snue.CID := inM.snhe.CID;
+               outM.snue.AID := inM.snhe.CID;
+               outM.snue.key.entity1 = i;
+               outM.snue.key.entity2 = inM.snhe.CID; -- since in our case CID is the same as UEID
+               SNs[i].state = SN_WAIT_M5;
+	    else
+	       error "Received M3 in wrong state"
+	    end;
+        case M5: -- send M6
+	    if SNs[i].state = SN_WAIT_M5 then
+	       outM.source := i;
+               outM.dest := SNs[i].CIDtoHEID[inM.snue.AID];
+               outM.key.entity1 := i;
+               outM.key.entity2 := SNs[i].CIDtoHEID[inM.snue.AID];
+               outM.mType := M6;
+               outM.uehe := inM.uehe;
+               outM.snhe.CID := inM.snhe.AID;
+               SNs[i].state = SN_WAIT_M7;
+	    else
+	       error "Received M5 in wrong state"
+	    end;
+        case M7: -- complete!
+	    if SNs[i].state = SN_WAIT_M7 then
+	       if SNs[i].CIDtoHE[inM.snhe.CID] = inM.source then
+               	  SNs[i].state = SN_DONE;
+	       else
+		  error "SN had incorrect CID acknowledged"
+	       end;
+	    end;
+        else
             error "SN received random message"
         end;
 
-        multisetadd (outM,net);
+	if !isundefined(outM) then
+	    multisetadd (outM,net);
+	end;
 
       end;
     end;
   end;
 end;
 
-
 --------------------------------------------------------------------------------
--- behavior of responders
+-- behavior of HEs
 
--- responder i reacts to initiator*s nonce (steps 3/6)
-ruleset i: ResponderId do
+-- HE responds to message (M2, M6)
+ruleset i: HEID do
   choose j: net do
-    rule 20 "responder reacts to initiator*s nonce (steps 3/6)"
+    rule 20 "SN responds to message (M2, M6)"
 
-      res[i].state = R_SLEEP &
       net[j].dest = i &
       ismember(net[j].source,IntruderId)
-
     ==>
 
     var
@@ -302,60 +373,52 @@ ruleset i: ResponderId do
       inM := net[j];
       multisetremove (j,net);
 
-      if inM.key=i then   -- message is encrypted with i*s key
-        if inM.mType=M_NonceAddress then   -- correct message type
-          undefine outM;
-          outM.source  := i;
-          outM.dest    := inM.nonce2;   -- identifier of initiator
-          outM.key     := inM.nonce2;
-          outM.mType   := M_NonceNonceAddress;
-          outM.nonce1  := inM.nonce1;
-          outM.nonce2  := i;
-          outM.address := i;
+      if hasKey(inM.key, i) then   -- message is encrypted with i*s key
 
-          multisetadd (outM,net);
-
-          res[i].state     := R_WAIT;
-          res[i].initiator := inM.nonce2;
-        end;
-      end;
-
-    end;
-  end;
-end;
-
--- responder i reacts to own nonce (step 7)
-ruleset i: ResponderId do
-  choose j: net do
-    rule 20 "responder reacts to own nonce (step 7)"
-
-      res[i].state = R_WAIT &
-      net[j].dest = i &
-      ismember(net[j].source,IntruderId)
-
-    ==>
-
-    begin
-      alias inM: net[j] do   -- incoming message
-
-        if inM.key=i then   -- message is encrypted with i*s key
-
-          if inM.mType=M_Nonce then   -- correct message type
-            if inM.nonce1=i then   -- correct nonce received
-              res[i].state := R_COMMIT;
-            else
-              --error "responder received incorrect nonce"
-            end;
-          end;
-
+        undefine outM;
+        switch inM.mType
+        case M2: -- send M3
+	    if HEs[i].state = HE_IDLE & outM.uehe.key = i & hasKey(outM.uehe.CHRES, i) then
+               outM.source := i;
+               outM.dest := inM.source;
+               outM.key = inM.key;
+               outM.mType := M3;
+	       outM.uehe.CID := inM.uehe.CID;
+               outM.uehe.CHRES := inM.uehe.CHRES;
+	       outM.uehe.dhs.UEID := inM.uehe.UEID;
+	       outM.uehe.dhs.HEID := i;
+	       outM.uehe.dhs.SNID := inM.source;
+	       outM.uehe.key.entity1 := inM.uehe.UEID;
+	       outM.uehe.key.entity2 := i;
+               outM.snhe.DH := i;
+               HEs[i].state = HE_WAIT_M6;
+	       -- SNs[i].CIDtoHEID[inM.source] = inM.snue.HEID;
+	    else
+	       error "HE received M2 but either wrong state, wrong keys, or wrong CHRES"
+	    end;
+        case M6: -- send M7
+            if HEs[i].state = HE_WAIT_M6 & hasKey(outM.uehe.key, i) & hasKey(outM.uehe.CHRES, i) &
+               inM.uehe.CID = inM.snhe.CID then
+	       outM.source := i;
+               outM.dest := inM.source;
+               outM.mType := M7;
+	       outM.snhe.CID = inM.snhe.CID;
+               HEs[i].state = HE_DONE;
+	    else
+	       error "HE received M6 but stuff is wrong"
+	    end;
+        else
+            error "HE received random message"
         end;
 
-        multisetremove (j,net);
+	if !isundefined(outM) then
+	    multisetadd (outM,net);
+	end;
+
       end;
     end;
   end;
 end;
-
 
 --------------------------------------------------------------------------------
 -- behavior of intruders
