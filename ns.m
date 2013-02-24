@@ -302,7 +302,6 @@ ruleset i: SNID do
                outM.uehe := inM.uehe;
                outM.snhe.DH := i;
                SNs[i].state = SN_WAIT_M3;
-	       SNs[i].CIDtoHEID[inM.source] = inM.snue.HEID;
 	    else
 	       error "Received M1 in the wrong state"
 	    end;
@@ -317,6 +316,7 @@ ruleset i: SNID do
                outM.snue.key.entity1 = i;
                outM.snue.key.entity2 = inM.snhe.CID; -- since in our case CID is the same as UEID
                SNs[i].state = SN_WAIT_M5;
+	       SNs[i].CIDtoHEID[inM.snhe.CID] = inM.source;
 	    else
 	       error "Received M3 in wrong state"
 	    end;
@@ -393,7 +393,6 @@ ruleset i: HEID do
 	       outM.uehe.key.entity2 := i;
                outM.snhe.DH := i;
                HEs[i].state = HE_WAIT_M6;
-	       -- SNs[i].CIDtoHEID[inM.source] = inM.snue.HEID;
 	    else
 	       error "HE received M2 but either wrong state, wrong keys, or wrong CHRES"
 	    end;
