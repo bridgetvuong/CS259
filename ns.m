@@ -128,7 +128,7 @@ type
     state:    UEStates;
     SN:     AgentId;          -- agent with whom the initiator starts the
     HE:     AgentId;
-    dhs:      dhs;
+    dhs:    dhs;
     -- UE*s CID and AID are the same as its own ID
   end;                           --  protocol
 
@@ -160,7 +160,10 @@ type
   end;
 
   Intruder : record
-    nonces:   array[AgentId] of boolean;           -- known nonces
+    UEIDs:     array[UEID] of boolean;	   -- known UEIDs
+    CIDs:      array[UEID] of boolean;	   -- known CIDs
+    CIDtoAIDs: array[UEID] of boolean;	   -- known mappings between CID and AID
+    dhs:       array[UEID] of boolean;	   -- known dhs indexed by UEID
     messages: multiset[MaxKnowledge] of Message;   -- known messages
   end;
     
@@ -189,12 +192,10 @@ end;
 -- UE starts protocol with SN or intruder j (message M1)
 ruleset i: UEID do
   ruleset j: AgentId do
-    ruleset k: AgentId do
         rule 20 "UE starts protocol (message M1)"
 
           UEs[i].state = UE_IDLE &
           (ismember(j,SNID) | ismember(j,intruderId)) &               -- only responders and intruders
-          (ismember(k,HEID) | ismember(k,intruderId)) &
           multisetcount (l:net, true) < NetworkSize
 
         ==>
@@ -210,15 +211,15 @@ ruleset i: UEID do
           outM.uehe.UEID := i;
           outM.uehe.CID := i;
           outM.uehe.CHRES.entity1 := i;
-          outM.uehe.CHRES.entity2 := k;
-          outM.uehe.key := k;
-          outM.snue.HEID := k;
+          outM.uehe.CHRES.entity2 := UEs[i].HE;
+          outM.uehe.key := UEs[i].HE;
+          outM.snue.HEID := UEs[i].HE;
 
           multisetadd (outM,net);
 
           UEs[i].state := UE_WAIT_M4;
           UEs[i].SN := j;
-          UEs[i].HE := k;
+          UEs[i].HE := UEs[i].HE;
         end;
     end;
   end;
@@ -247,13 +248,13 @@ ruleset i: UEID do
 	     inM.uehe.CID = i & inM.snue.CID = i then
              undefine outM;
              outM.source := i;
-             outM.dest := inM.source;
+             outM.dest := UEs[i].SN;
 	     outM.key = inM.snue.key;
              outM.mType := M5;
              outM.uehe.CID := i;
              outM.uehe.CHRES = inM.uehe.CHRES;
              outM.uehe.key := inM.uehe.key;
-             outM.snue.AID := i;
+             outM.snue.AID := inM.snue.AID;
 
              multisetadd (outM,net);
 
@@ -319,7 +320,7 @@ ruleset i: SNID do
 	    else
 	       error "Received M3 in wrong state"
 	    end;
-        case M5: -- send M6
+        case M5: -- send M6.. TODO: check if valid AID, CID pair?
 	    if SNs[i].state = SN_WAIT_M5 then
 	       outM.source := i;
                outM.dest := SNs[i].CIDtoHEID[inM.snue.AID];
@@ -334,10 +335,10 @@ ruleset i: SNID do
 	    end;
         case M7: -- complete!
 	    if SNs[i].state = SN_WAIT_M7 then
-	       if SNs[i].CIDtoHE[inM.snhe.CID] = inM.source then
+	       if SNs[i].CIDtoHEID[inM.snhe.CID] = inM.source then
                	  SNs[i].state = SN_DONE;
 	       else
-		  error "SN had incorrect CID acknowledged"
+c		  error "SN had incorrect CID acknowledged"
 	       end;
 	    end;
         else
@@ -378,7 +379,7 @@ ruleset i: HEID do
         undefine outM;
         switch inM.mType
         case M2: -- send M3
-	    if HEs[i].state = HE_IDLE & outM.uehe.key = i & hasKey(outM.uehe.CHRES, i) then
+	    if HEs[i].state = HE_IDLE & inM.uehe.key = i & hasKey(inM.uehe.CHRES, i) then
                outM.source := i;
                outM.dest := inM.source;
                outM.key = inM.key;
@@ -397,7 +398,7 @@ ruleset i: HEID do
 	       error "HE received M2 but either wrong state, wrong keys, or wrong CHRES"
 	    end;
         case M6: -- send M7
-            if HEs[i].state = HE_WAIT_M6 & hasKey(outM.uehe.key, i) & hasKey(outM.uehe.CHRES, i) &
+            if HEs[i].state = HE_WAIT_M6 & hasKey(inM.uehe.key, i) & hasKey(inM.uehe.CHRES, i) &
                inM.uehe.CID = inM.snhe.CID then
 	       outM.source := i;
                outM.dest := inM.source;
@@ -428,7 +429,9 @@ ruleset i: IntruderId do
   choose j: net do
       rule 10 "intruder intercepts"
 
-        !ismember (net[j].source, IntruderId)    -- not for intruders* messages
+        !ismember (net[j].source, IntruderId) &    -- not for intruders* messages
+	net[j].mType != M2 & net[j].mType != M3 & net[j].mType != M6 &
+	net[j].mType != M7
 
       ==>
 
@@ -438,25 +441,64 @@ ruleset i: IntruderId do
       begin
         alias msg: net[j] do   -- message to intercept
 
-          if msg.key=i then   -- message is encrypted with i*s key
-            int[i].nonces[msg.nonce1] := true;     -- learn nonces
-            if msg.mType=M_NonceNonceAddress then
-              int[i].nonces[msg.nonce2] := true;
-            end;
+          if  then   -- message is encrypted with i*s key
+	    switch msg.mType
+	    case M1:
+	    	 if hasKey(msg.key, i) & msg.uehe.key = i then
+		    adv[i].UEIDs[msg.uehe.UEID] := true;
+		    adv[i].CIDs[msg.uehe.CID] := true;
+		 end;
+	    case M2:
+	    	 if hasKey(msg.key, i) & msg.uehe.key = i then
+		    adv[i].UEIDs[msg.uehe.UEID] := true;
+		    adv[i].CIDs[msg.uehe.CID] := true;
+		 end;
+	    case M3:
+	    	 if hasKey(msg.key, i) then
+	    	    adv[i].CIDs[msg.snhe.CID] := true;
+		    if hasKey(msg.uehe.key, i) then
+		       adv[i].CIDs[msg.uehe.CID] := true;
+		       adv[i].dhs[msg.uehe.dhs.UEID] := true;
+		    end;
+		 end;
+	    case M4:
+		 if hasKey(msg.key, i) & (hasKey(msg.snue.key, i) | adv[i].dhs[msg.dest]) then
+		    adv[i].CIDs[msg.snue.CID] := true;
+		    adv[i].CIDtoAIDs[msg.snue.CID] := true;
+		 end;
+		 if hasKey(msg.uehe.key, i) then
+		    adv[i].CIDs[msg.uehe.CID] := true;
+		    adv[i].dhs[msg.uehe.dhs.UEID] := true;
+		 end;
+	    case M5:
+		 if (hasKey(msg.key, i) | adv[i].dhs[msg.source]) &
+	    	    hasKey(msg.uehe.key, i) then
+		    adv[i].CIDs[msg.uehe.CID] := true;
+		    adv[i].CIDtoAIDs[msg.snhe.CID] := true;
+		 end;	    
+	    case M6:
+	    	 if hasKey(msg.key, i) then
+		    adv[i].CIDs[msg.snhe.CID] := true;
+		 end;
+	    case M7:
+	    	 if hasKey(msg.key, i) then
+		    adv[i].CIDs[msg.snhe.CID] := true;
+		 end;
+	    end;
           else                                     -- learn message
-            alias messages: int[i].messages do
+            alias messages: adv[i].messages do
               temp := msg;
               undefine temp.source;   -- delete useless information
               undefine temp.dest;
               if multisetcount (l:messages,   -- add only if not there
                    messages[l].key = temp.key & 
-                   messages[l].mType = temp.mType &
-                   messages[l].nonce1 = temp.nonce1 &
-                   ( messages[l].mType != M_Nonce ->
-                     messages[l].nonce2 = temp.nonce2 ) &
-                   ( messages[l].mType = M_NonceNonceAddress ->
-                     messages[l].address = temp.address ) ) = 0 then
-                multisetadd (temp, int[i].messages);
+                   messages[l].mType = temp.mType) then  --&
+                   -- messages[l].nonce1 = temp.nonce1 &
+                   --( messages[l].mType != M_Nonce ->
+                   --  messages[l].nonce2 = temp.nonce2 ) &
+                   --( messages[l].mType = M_NonceNonceAddress ->
+                   --  messages[l].address = temp.address ) ) = 0 then
+                multisetadd (temp, adv[i].messages);
               end;
             end;
           end;
@@ -467,14 +509,23 @@ ruleset i: IntruderId do
   end;
 end;
 
+function isAppropriateRecipient(k: AgentId, msg: Message): boolean;
+begin
+    return ((ismember(k, SNID) & (msg.mType = M1 | msg.mType = M3 |
+		     	      	  msg.mType = M5 | msg.mType = M7)) |
+    	    (ismember(k, UEID) & msg.mType = M4) |
+	    (ismember(k, HEID) & (msg.mType = M2 | msg.mType = M6)))
+end;
+
 -- intruder i sends recorded message
 ruleset i: IntruderId do         -- arbitrary choice of
-  choose j: int[i].messages do   --  recorded message
+  choose j: adv[i].messages do   --  recorded message
     ruleset k: AgentId do        --  destination
       rule 90 "intruder sends recorded message"
 
         !ismember(k, IntruderId) &                 -- not to intruders
-        multisetcount (l:net, true) < NetworkSize
+        multisetcount (l:net, true) < NetworkSize &
+	isAppropriateRecipient(k, adv[i].messages[j])
 
       ==>
 
@@ -482,7 +533,7 @@ ruleset i: IntruderId do         -- arbitrary choice of
         outM: Message;
 
       begin
-        outM        := int[i].messages[j];
+        outM        := adv[i].messages[j];
         outM.source := i;
         outM.dest   := k;
 
@@ -496,14 +547,13 @@ end;
 ruleset i: IntruderId do       -- arbitrary choice of
  ruleset j: AgentId do         --  destination = key
   ruleset l: MessageType do    --  message type
-   ruleset m: AgentId do       --  nonce1
+   ruleset m: AgentId do       --  CID
     ruleset n: AgentId do      --  nonce2
-     ruleset o: AgentId do     --  address
       rule 90 "intruder generates message"
 
         !ismember(j, IntruderId) &       -- not to intruders
-        int[i].nonces[m] = true &        -- nonces must be known
-        int[i].nonces[n] = true &
+        adv[i].nonces[m] = true &        -- nonces must be known
+        adv[i].nonces[n] = true &
         multisetcount (t:net, true) < NetworkSize
 
       ==>
@@ -544,7 +594,7 @@ end;
 --------------------------------------------------------------------------------
 -- startstate
 --------------------------------------------------------------------------------
-
+--TODO: initialize HEs in the UEs
 startstate
   -- initialize initiators
   undefine ini;
@@ -564,9 +614,9 @@ startstate
   undefine int;
   for i: IntruderId do   -- the only nonce known is the own one
     for j: AgentId do  
-      int[i].nonces[j] := false;
+      adv[i].nonces[j] := false;
     end;
-    int[i].nonces[i] := true;
+    adv[i].nonces[i] := true;
   end;
 
   -- initialize network 
