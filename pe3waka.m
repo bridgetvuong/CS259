@@ -192,7 +192,7 @@ end;
 
 -- UE starts protocol with SN or intruder j (message M1)
 ruleset i: UEID do
-  ruleset j: AgentId do
+	ruleset j: AgentId do
 		rule 20 "UE starts protocol (message M1)"
 
 			UEs[i].state = UE_IDLE &
@@ -229,9 +229,9 @@ end;
 
 -- UE responds to message M4
 ruleset i: UEID do
-  choose j: netA do
-    rule 20 "UE responds to message M4"
-      alias inM: netA[j] do
+	choose j: netA do
+		rule 20 "UE responds to message M4"
+			alias inM: netA[j] do
 
 				UEs[i].state = UE_WAIT_M4 &			-- UE expecting message M4
 				inM.dest = i &
@@ -279,8 +279,8 @@ end;
 
 -- SN responds to message M1
 ruleset i: SNID do
-  choose j: netA do
-    rule 20 "SN responds to message M1"
+	choose j: netA do
+		rule 20 "SN responds to message M1"
 			alias inM: netA[j] do
 
 				SNs[i].state = SN_IDLE &
@@ -320,8 +320,8 @@ end;
 
 -- SN responds to message M3
 ruleset i: SNID do
-  choose j: netB do
-    rule 20 "SN responds to message M3"
+	choose j: netB do
+		rule 20 "SN responds to message M3"
 			alias inM: netB[j] do
 
 				SNs[i].state = SN_WAIT_M3 &
@@ -364,8 +364,8 @@ end;
 
 -- SN responds to message M5
 ruleset i: SNID do
-  choose j: netA do
-    rule 20 "SN responds to message M5"
+	choose j: netA do
+		rule 20 "SN responds to message M5"
 			alias inM: netA[j] do
 
 				SNs[i].state = SN_WAIT_M5 &
@@ -410,8 +410,8 @@ end;
 
 -- SN responds to message M7
 ruleset i: SNID do
-  choose j: netB do
-    rule 20 "SN responds to message M7"
+	choose j: netB do
+		rule 20 "SN responds to message M7"
 			alias inM: netB[j] do
 
 				SNs[i].state = SN_WAIT_M7 &
@@ -438,8 +438,8 @@ end;
 
 -- HE responds to message M2
 ruleset i: HEID do
-  choose j: netB do
-    rule 20 "HE responds to message M2"
+	choose j: netB do
+		rule 20 "HE responds to message M2"
 			alias inM: netB[j] do
 
 				HEs[i].state = HE_IDLE &
@@ -485,8 +485,8 @@ end;
 
 -- HE responds to message M6
 ruleset i: HEID do
-  choose j: netB do
-    rule 20 "HE responds to message M6"
+	choose j: netB do
+		rule 20 "HE responds to message M6"
 			alias inM: netB[j] do
 
 				HEs[i].state = HE_WAIT_M6 &
@@ -529,7 +529,7 @@ end;
 
 -- intruder i intercepts messages
 ruleset i: IntruderId do
-  choose j: netA do
+	choose j: netA do
 		rule 10 "intruder intercepts"
 			alias inM: netA[j] do
 
@@ -598,9 +598,9 @@ end;
 
 -- intruder i sends recorded message
 ruleset i: IntruderId do         -- arbitrary choice of
-  choose j: adv[i].messages do   --  recorded message
-    ruleset k: AgentId do        --  destination
-      rule 90 "intruder sends recorded message"
+	choose j: adv[i].messages do   --  recorded message
+		ruleset k: AgentId do        --  destination
+			rule 90 "intruder sends recorded message"
 
 				!ismember(k, IntruderId) &                 -- not to intruders
 				multisetcount (l:net, true) < NetworkSize &
@@ -698,7 +698,7 @@ startstate
 
   -- initialize intruders
   undefine adv;
-  for i: IntruderId do   -- the only nonce known is the own one
+  for i: IntruderId do
     for j: UEID do  
       adv[i].UEIDs[j] := false;
       adv[i].CIDs[j] := false;
