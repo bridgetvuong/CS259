@@ -122,10 +122,12 @@ type
 
   UE : record
     state:    UEStates;
-    SN:     AgentId;
-    HE:     AgentId;
-    dhs:    dhs;
-    -- UE*s CID and AID are the same as its own ID
+    SN:     	AgentId;
+    HE:     	AgentId;
+		CHRES:		symkey;
+    dhs:    	dhs;
+		AID:			AgentId;
+    -- UE*s CID and AID should be the same as its own ID
   end;
 
   SNStates : enum {
@@ -137,9 +139,11 @@ type
   };
 
   SN : record
-    state:    SNStates;
-    CIDtoHEID:     array[UEID] of AgentId; -- mapping from CID to AID is just equality
-    dhs:      array[UEID] of dhs; -- TODO: store in messages
+    state:		 SNStates;
+		UEIDs:		 array[UEID] of boolean;
+    CIDtoHEID: array[UEID] of AgentId;
+		CIDtoAID:	 array[UEID] of AgentId; -- mapping from CID to AID should be equality
+    dhs:			 array[UEID] of dhs;
   end;
 
   HEStates : enum {
@@ -149,10 +153,9 @@ type
   };
 
   HE : record
-    state:     HEStates;
-    SNIDs:     array[SNID] of AgentId;
-    UEIDs:     array[UEID] of AgentId;
-    dhs:       array[UEID] of dhs; -- TODO: store in messages
+    state:		 HEStates;
+    CHRESs:		 array[UEID] of symkey;
+    dhs:       array[UEID] of dhs;
   end;
 
   Intruder : record
@@ -160,7 +163,7 @@ type
     CIDs:      array[UEID] of boolean;	   -- known CIDs
     CIDtoAIDs: array[UEID] of boolean;	   -- known mappings between CID and AID
     dhs:       array[UEID] of boolean;	   -- known dhs indexed by UEID
-    messages: multiset[MaxKnowledge] of Message;   -- known messages
+    messages:  multiset[MaxKnowledge] of Message;   -- known messages
   end;
     
 
@@ -218,6 +221,7 @@ ruleset i: UEID do
 				UEs[i].state := UE_WAIT_M4;
 				UEs[i].SN := j;
 				UEs[i].HE := UEs[i].HE;
+				UEs[i].CHRES := outM.uehe.CHRES;
 			end;
 		end;
 	end;
@@ -262,6 +266,7 @@ ruleset i: UEID do
 
 					UEs[i].state := UE_DONE;
 					UEs[i].dhs := inM.uehe.dhs;
+					UEs[i].AID := inM.snue.AID;
 				end;
 			end;
 		end;
@@ -304,6 +309,9 @@ ruleset i: SNID do
 					multisetadd (outM,netB);
 
 					SNs[i].state = SN_WAIT_M3;
+					if inM.uehe.key = i then
+						SNs[i].UEIDs[inM.uehe.UEID] := true;
+					end;
 				end;
 			end;
 		end;
@@ -318,7 +326,7 @@ ruleset i: SNID do
 
 				SNs[i].state = SN_WAIT_M3 &
 				inM.dest = i &
-				ismember(inM.source,IntruderId) &
+				ismember(inM.source,HEID) &
 				inM.type = M3 &
 				hasKey(inM.key, i)
 
@@ -344,13 +352,17 @@ ruleset i: SNID do
 
 					SNs[i].state = SN_WAIT_M5;
 					SNs[i].CIDtoHEID[inM.snhe.CID] = inM.source;
+					SNs[i].CIDtoAID[inM.snhe.CID] = outM.snue.AID;
+					SNs[i].dhs[inM.snhe.CID].UEID = inM.snhe.CID;
+					SNs[i].dhs[inM.snhe.CID].SNID = i;
+					SNs[i].dhs[inM.snhe.CID].HEID = inM.snhe.DH;
 				end;
 			end;
 		end;
 	end;
 end;
 
--- SN responds to message M5 TODO: CHECK CID to AID MAPPING?
+-- SN responds to message M5
 ruleset i: SNID do
   choose j: netA do
     rule 20 "SN responds to message M5"
@@ -366,22 +378,30 @@ ruleset i: SNID do
 
 				var
 					outM: Message;
+					CID:	AgentId;
 
 				begin
 					multisetremove (j,netA);
+					
+					if inM.key.entity1 = i then
+						CID := inM.key.entity2;
+					else
+						CID := inM.key.entity1;
 
-					undefine outM;
-					outM.source := i;
-					outM.dest := SNs[i].CIDtoHEID[inM.snue.AID];
-					outM.key.entity1 := i;
-					outM.key.entity2 := SNs[i].CIDtoHEID[inM.snue.AID];
-					outM.mType := M6;
-					outM.uehe := inM.uehe;
-					outM.snhe.CID := inM.snhe.AID;
+					if SNs[i].CIDtoAID[CID] = inM.snue.AID then
+						undefine outM;
+						outM.source := i;
+						outM.dest := SNs[i].CIDtoHEID[CID];
+						outM.key.entity1 := i;
+						outM.key.entity2 := SNs[i].CIDtoHEID[CID];
+						outM.mType := M6;
+						outM.uehe := inM.uehe;
+						outM.snhe.CID := CID;
 
-					multisetadd (outM,netB);
+						multisetadd (outM,netB);
 
-					SNs[i].state = SN_WAIT_M7;
+						SNs[i].state = SN_WAIT_M7;
+					end;
 				end;
 			end;
 		end;
@@ -396,7 +416,7 @@ ruleset i: SNID do
 
 				SNs[i].state = SN_WAIT_M7 &
 				inM.dest = i &
-				ismember(inM.source,IntruderId) &
+				ismember(inM.source,HEID) &
 				inM.type = M7 &
 				hasKey(inM.key, i) &
 
@@ -424,7 +444,7 @@ ruleset i: HEID do
 
 				HEs[i].state = HE_IDLE &
 				inM.dest = i &
-				ismember(inM.source,IntruderId) &
+				ismember(inM.source,SNID) &
 				inM.mType = M2 &
 				hasKey(inM.key, k) &
 
@@ -448,7 +468,7 @@ ruleset i: HEID do
 					outM.uehe.CHRES := inM.uehe.CHRES;
 					outM.uehe.dhs.UEID := inM.uehe.UEID;
 					outM.uehe.dhs.HEID := i;
-					outM.uehe.dhs.SNID := inM.source;
+					outM.uehe.dhs.SNID := inM.snhe.DH;
 					outM.uehe.key.entity1 := inM.uehe.UEID;
 					outM.uehe.key.entity2 := i;
 					outM.snhe.DH := i;
@@ -456,6 +476,7 @@ ruleset i: HEID do
 					multisetadd (outM,netB);					
 
 					HEs[i].state = HE_WAIT_M6;
+					HEs[i].dhs[inM.uehe.UEID] = outM.uehe.dhs;
 				end;
 			end;
 		end;
@@ -470,7 +491,7 @@ ruleset i: HEID do
 
 				HEs[i].state = HE_WAIT_M6 &
 				inM.dest = i &
-				ismember(inM.source,IntruderId) &
+				ismember(inM.source,SNID) &
 				inM.mType = M6 &
 				hasKey(inM.key, k) &
 
@@ -495,6 +516,7 @@ ruleset i: HEID do
 					multisetadd (outM,netB);					
 
 					HEs[i].state = HE_DONE;
+					HEs[i].CHRESs[inM.uehe.UEID] := inM.uehe.CHRES;
 				end;
 			end;
 		end;
@@ -650,29 +672,39 @@ end;
 --------------------------------------------------------------------------------
 -- startstate
 --------------------------------------------------------------------------------
---TODO: initialize HEs in the UEs
 startstate
-  -- initialize initiators
-  undefine ini;
-  for i: InitiatorId do
-    ini[i].state     := I_SLEEP;
-    ini[i].responder := i;
+  -- initialize UEs
+  undefine UEs;
+  for i: UEID do
+    UEs[i].state := UE_IDLE;
+    UEs[i].SN := i;
+		UEs[i].HE := i;
   end;
 
-  -- initialize responders
-  undefine res;
-  for i: ResponderId do
-    res[i].state     := R_SLEEP;
-    res[i].initiator := i;
+  -- initialize SNs
+  undefine SNs;
+  for i: SNID do
+    SNs[i].state := SN_IDLE;
+    for j: UEID do
+			SNs[i].UEIDs[j] := false;
+		end;
+  end;
+
+  -- initialize HEs
+  undefine HEs;
+  for i: HEID do
+    HEs[i].state := HE_IDLE;
   end;
 
   -- initialize intruders
-  undefine int;
+  undefine adv;
   for i: IntruderId do   -- the only nonce known is the own one
-    for j: AgentId do  
-      adv[i].nonces[j] := false;
+    for j: UEID do  
+      adv[i].UEIDs[j] := false;
+      adv[i].CIDs[j] := false;
+      adv[i].CIDtoAIDs[j] := false;
+      adv[i].dhs[j] := false;
     end;
-    adv[i].nonces[i] := true;
   end;
 
   -- initialize network 
@@ -684,21 +716,83 @@ end;
 -- invariants
 --------------------------------------------------------------------------------
 
-invariant "responder correctly authenticated"
-  forall i: InitiatorId do
-    ini[i].state = I_COMMIT &
-    ismember(ini[i].responder, ResponderId)
-    ->
-    res[ini[i].responder].initiator = i &
-    ( res[ini[i].responder].state = R_WAIT |
-      res[ini[i].responder].state = R_COMMIT )
+invariant "adversary does not learn identity of UE"
+  forall i: intruderId do
+		forall j: UEID do
+
+			UEs[j].state = UE_DONE
+			->
+			(!adv[i].UEIDs[j] & !adv[i].CIDs[j])
+		end;
   end;
 
-invariant "initiator correctly authenticated"
-  forall i: ResponderId do
-    res[i].state = R_COMMIT &
-    ismember(res[i].initiator, InitiatorId)
-    ->
-    ini[res[i].initiator].responder = i &
-    ini[res[i].initiator].state = I_COMMIT
+invariant "adversary does not learn location of UE"
+  forall i: intruderId do
+		forall j: UEID do
+
+			UEs[j].state = UE_DONE
+			->
+			!adv[i].CIDtoAIDs[j]
+		end;
   end;
+
+invariant "SN does not learn identity of UE"
+  forall i: SNID do
+		forall j: UEID do
+
+			SNs[i].state = SN_DONE &
+			UEs[j].state = UE_DONE
+			->
+			!SNs[i].UEIDs[j]
+		end;
+  end;
+
+invariant "SN and UE agree on AID"
+  forall i: SNID do
+		forall j: UEID do
+
+			SNs[i].state = SN_DONE &
+			UEs[j].state = UE_DONE
+			->
+			SNs[i].CIDtoAIDs[j] = UEs[j].AID
+		end;
+  end;
+
+invariant "HE and UE are mutually authenticated"
+  forall i: HEID do
+		forall j: UEID do
+
+			HEs[i].state = HE_DONE &
+			UEs[j].state = UE_DONE
+			->
+			HEs[i].CHRESs[j] = UEs[j].CHRES
+		end;
+  end;
+
+invariant "HE, SN, and UE agree that protocol has ended"
+	forall i: HEID do
+		forall j: SNID do
+			forall k: UEID do
+
+				SNs[j].state = SN_DONE
+				->
+				HEs[i].state = HE_DONE &
+				UEs[k].state = UE_DONE
+			end;
+		end;
+	end;
+
+invariant "HE, SN, and UE agree on dhs"
+	forall i: HEID do
+		forall j: SNID do
+			forall k: UEID do
+
+				HEs[i].state = HE_DONE &
+				SNs[j].state = SN_DONE &
+				UEs[k].state = UE_DONE
+				->
+				UEs[k].dhs = SNs[j].dhs[k] &
+				UEs[k].dhs = HEs[i].dhs[k]
+			end;
+		end;
+	end;
