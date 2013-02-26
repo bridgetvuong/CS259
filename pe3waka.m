@@ -79,37 +79,37 @@ type
 
 	-- UE-HE exchange
 	UEHEMessage : record
-		UEID:     AgentId;
-		CID:      AgentId;
-		CHRES:    symkey;
-		dhs:      dhs;
-		key:      union { AgentId, symkey };
+		UEID:	AgentId;
+		CID:	AgentId;
+		CHRES:	symkey;
+		dhs:	dhs;
+		key:	union { AgentId, symkey };
 	end;
 
 	-- SN-UE exchange
 	SNUEMessage : record
-		HEID:     AgentId;
-		AID:      AgentId;
-		CID:      AgentId;
-		key:      symkey;
+		HEID:	AgentId;
+		AID:	AgentId;
+		CID:	AgentId;
+		key:	symkey;
 	end;
 
 	-- SN-HE exchange
 	SNHEMessage : record
-		CID:      AgentId;
-		DH:       AgentId;
+		CID:	AgentId;
+		DH:	AgentId;
 	end;
 
 	-- Overall message
 	Message : record
-		source:   AgentId;		-- source of message
-		dest:     AgentId;		-- intended destination of message
-		mType:    MessageType;	-- type of message
-		key:      symkey;		-- key used for encryption
+		source:	AgentId;		-- source of message
+		dest:	AgentId;		-- intended destination of message
+		mType:	MessageType;		-- type of message
+		key:	symkey;		-- key used for encryption
 		
-		uehe:     UEHEMessage;
-		snhe:     SNHEMessage;
-		snue:     SNUEMessage;
+		uehe:	UEHEMessage;
+		snhe:	SNHEMessage;
+		snue:	SNUEMessage;
 		
 		-- Assume VP and Qid do not need to be passed, cryptography abstraction for IBE
 	end;
@@ -121,11 +121,11 @@ type
 	};				
 
 	UE : record
-		state:    UEStates;
-		SN:     	AgentId;
-		HE:     	AgentId;
+		state:	UEStates;
+		SN:	AgentId;
+		HE:	AgentId;
 		CHRES:	symkey;
-		dhs:    	dhs;
+		dhs:	dhs;
 		AID:	AgentId;
 		-- UE*s CID and AID should be the same as its own ID
 	end;
@@ -141,7 +141,7 @@ type
 	SN : record
 		state:		 SNStates;
 		UEIDs:		 array[UEID] of boolean;
-		CIDtoHEID:	 array[UEID] of AgentId;
+		CIDtoHEID: 	 array[UEID] of AgentId;
 		CIDtoAID:	 array[UEID] of AgentId; -- mapping from CID to AID should be equality
 		dhs:		 array[UEID] of dhs;
 	end;
@@ -153,34 +153,34 @@ type
 	};
 
 	HE : record
-		state:		HEStates;
-		CHRESs:		array[UEID] of symkey;
-		dhs:		array[UEID] of dhs;
+		state:	HEStates;
+		CHRESs:	array[UEID] of symkey;
+		dhs:	array[UEID] of dhs;
 	end;
 
 	Adversary : record
-		UEIDs:     array[UEID] of boolean;	   -- known UEIDs
-		CIDs:      array[UEID] of boolean;	   -- known CIDs
-		CIDtoAIDs: array[UEID] of boolean;	   -- known mappings between CID and AID
-		dhs:       array[UEID] of boolean;	   -- known dhs indexed by UEID
-		messages:  multiset[MaxKnowledge] of Message;   -- known messages
+		UEIDs:		array[UEID] of boolean;	   -- known UEIDs
+		CIDs:		array[UEID] of boolean;	   -- known CIDs
+		CIDtoAIDs:	array[UEID] of boolean;	   -- known mappings between CID and AID
+		dhs:		array[UEID] of boolean;	   -- known dhs indexed by UEID
+		messages:	multiset[MaxKnowledge] of Message;   -- known messages
 	end;
     
 
 -- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-var	   	   	   	   	   	   	   	   	   	   	 -- state variables for
+var    	       	       	       	       	       	 -- state variables for
 	netA: multiset[NetworkSize] of Message;  --  network interface A
 	netB: multiset[NetworkSize] of Message;  --  network interface B
-	UEs: array[UEID] of UE;                  --  UEs
-	SNs: array[SNID] of SN;                  --  SNs
-	HEs: array[HEID] of HE;                  --  HEs
-	adv: array[AdvId] of Adversary;			 --  adversaries
+	UEs:  array[UEID] of UE;       		 --  UEs
+	SNs:  array[SNID] of SN;		 --  SNs
+	HEs:  array[HEID] of HE;		 --  HEs
+	adv:  array[AdvId] of Adversary;	 --  adversaries
 
 
 -- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 function hasKey(key: symkey, entity: AgentId): boolean;
 begin
-  return (isundefined(key) | key.entity1 = entity | key.entity2 = entity);
+	return (isundefined(key) | key.entity1 = entity | key.entity2 = entity);
 end;
 
 --------------------------------------------------------------------------------
@@ -725,7 +725,7 @@ invariant "adversary does not learn identity of UE"
 			->
 			(!adv[i].UEIDs[j] & !adv[i].CIDs[j])
 		end;
-  end;
+	end;
 
 invariant "adversary does not learn location of UE"
 	forall i: AdvId do
@@ -735,7 +735,7 @@ invariant "adversary does not learn location of UE"
 			->
 			!adv[i].CIDtoAIDs[j]
 		end;
-  end;
+	end;
 
 invariant "SN does not learn identity of UE"
 	forall i: SNID do
@@ -746,7 +746,7 @@ invariant "SN does not learn identity of UE"
 			->
 			!SNs[i].UEIDs[j]
 		end;
-  end;
+	end;
 
 invariant "SN and UE agree on AID"
 	forall i: SNID do
@@ -757,7 +757,7 @@ invariant "SN and UE agree on AID"
 			->
 			SNs[i].CIDtoAIDs[j] = UEs[j].AID
 		end;
-  end;
+	end;
 
 invariant "HE and UE are mutually authenticated"
 	forall i: HEID do
@@ -768,7 +768,7 @@ invariant "HE and UE are mutually authenticated"
 			->
 			HEs[i].CHRESs[j] = UEs[j].CHRES
 		end;
-  end;
+	end;
 
 invariant "HE, SN, and UE agree that protocol has ended"
 	forall i: HEID do
