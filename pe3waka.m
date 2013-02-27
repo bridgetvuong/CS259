@@ -164,6 +164,8 @@ type
 		CIDtoAIDs:	array[UEID] of boolean;	   -- known mappings between CID and AID
 		dhs:		array[UEID] of boolean;	   -- known dhs indexed by UEID
 		messages:	multiset[MaxKnowledge] of Message;   -- known messages
+		--M4messages: multiset[MaxKnowledge] of Message;   -- known messages
+		--M5messages: multiset[MaxKnowledge] of Message;   -- known messages
 	end;
     
 
@@ -541,6 +543,7 @@ ruleset i: AdvId do
 					temp: Message;
 
 				begin
+					temp := inM;
 
 					switch inM.mType
 						case M1:
@@ -558,29 +561,14 @@ ruleset i: AdvId do
 								adv[i].dhs[inM.uehe.dhs.UEID] := true;
 							end;
 						case M5:
-								if (hasKey(inM.key, i) | adv[i].dhs[inM.source]) &
-									hasKey(inM.uehe.key, i) then
-									adv[i].CIDs[inM.uehe.CID] := true;
-									adv[i].CIDtoAIDs[inM.snhe.CID] := true;
-								end;	    
-					else                                     -- learn message
-						alias messages: adv[i].messages do
-							temp := inM;
-							undefine temp.source;   -- delete useless information
-							undefine temp.dest;
-							if multisetcount (l:messages,   -- add only if not there
-								messages[l].key = temp.key & 
-								messages[l].mType = temp.mType) then  --&
-								-- messages[l].nonce1 = temp.nonce1 &
-								--( messages[l].mType != M_Nonce ->
-								--  messages[l].nonce2 = temp.nonce2 ) &
-								--( messages[l].mType = M_NonceNonceAddress ->
-								--  messages[l].address = temp.address ) ) = 0 then
-								multisetadd (temp, adv[i].messages);
-							end;
-						end;
+							if (hasKey(inM.key, i) | adv[i].dhs[inM.source]) &
+								hasKey(inM.uehe.key, i) then
+								adv[i].CIDs[inM.uehe.CID] := true;
+								adv[i].CIDtoAIDs[inM.snhe.CID] := true;
+							end;	    
 					end;
-					
+
+					multisetadd (temp, adv[i].messages);
 					multisetremove (j,netA);
 				end;
 			end;
@@ -596,71 +584,44 @@ begin
 		(ismember(k, HEID) & (msg.mType = M2 | msg.mType = M6)));
 end;
 
--- intruder i sends recorded message
-ruleset i: AdvId do         -- arbitrary choice of
-	choose j: adv[i].messages do   --  recorded message
-		ruleset k: AgentId do        --  destination
-			rule 90 "intruder sends recorded message"
+-- intruder i generates message
+ruleset i: AdvId do
+	ruleset j: AgentId do
+		ruleset k: MessageType do
+			alias messages: adv[i].messages do
+				ruleset l: messages do
+					ruleset m: messages do
+						rule 90 "intruder generates message (recorded or frankenstein)"
 
-				!ismember(k, AdvId) &                 -- not to intruders
-				multisetcount (l:net, true) < NetworkSize &
-				isAppropriateRecipient(k, adv[i].messages[j])
-
-				==>
-
-				var
-					outM: Message;
-
-				begin
-					outM := adv[i].messages[j];
-					outM.source := i;
-					outM.dest := k;
-
-					multisetadd (outM,netA);
-				end;
-			end;
-		end;
-	end;
-end;
-
--- intruder i generates message with the nonces it knows
-ruleset i: AdvId do       -- arbitrary choice of
-	ruleset j: AgentId do         --  destination = key
-		ruleset l: MessageType do    --  message type
-			ruleset m: AgentId do       --  CID
-				ruleset n: AgentId do      --  nonce2
-					rule 90 "intruder generates message"
-
-						!ismember(j, AdvId) &       -- not to intruders
-						adv[i].nonces[m] = true &        -- nonces must be known
-						adv[i].nonces[n] = true &
-						multisetcount (t:net, true) < NetworkSize
+							((ismember(j, UEID) & k = M4) | 
+							(ismember(j, SNID) & (k = M1 | k = M5))) &
+							multisetcount (t:net, true) < NetworkSize
 						
-						==>
-						
-						var
-							outM: Message;
+							==>
+
+							var
+								outM: Message;
 							
-						begin
-							undefine outM;
-							outM.source := i;
-							outM.dest   := j;
-							outM.key    := j;
-							outM.mType  := l;
-							
-							switch l   -- set content dependent on message type
-								case M_NonceAddress:
-									outM.nonce1 := m;
-									outM.nonce2 := o;
-								case M_NonceNonceAddress:
-									outM.nonce1  := m;
-									outM.nonce2  := n;
-									outM.address := o;
-								case M_Nonce:
-									outM.nonce1 := m;
+							begin
+								undefine outM;
+								outM.source := i;
+								outM.dest   := j;
+								outM.mType  := k;
+
+								-- If you can decrypt both message l and m, proceed with
+								-- frankenstein-ing. Otherwise just send message m.
+								if (hasKey(messages[l].key, i) |
+									(messages[l].mType = M5 & adv[i].dhs[messages[l].source]))	&
+									(hasKey(messages[m].key, i) |
+									(message[m].mType = M5 &	adv[i].dhs[messages[m].source])) then
+									outM.uehe := messages[l].uehe;
+									outM.snue := messages[m].snue;
+								else
+									outM := messages[m];
+								end;
+
+								multisetadd (outM,netA);
 							end;
-
-							multisetadd (outM,net);
 						end;
 					end;
 				end;
