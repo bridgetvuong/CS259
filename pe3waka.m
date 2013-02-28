@@ -590,6 +590,7 @@ ruleset i: AdvId do
 
 						((ismember(j, UEID) & k = M4) | 
 						(ismember(j, SNID) & (k = M1 | k = M5))) &
+						messages[l].mType = k & messages[m].mType = k &
 						multisetcount (t:netA, true) < NetworkSize
 					
 						==>
