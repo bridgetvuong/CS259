@@ -65,9 +65,12 @@ type
 	};
 
 	-- Symmetric key between two entities
-	symkey : record
+	Key : record
 		entity1: AgentId;
 		entity2: AgentId;
+		-- if yes, both entities are used
+		-- otherwise, only entity1 is used
+		isSymkey : boolean;
 	end;
 
 	-- Diffie Hellman secret
@@ -81,9 +84,9 @@ type
 	UEHEMessage : record
 		UEID:	AgentId;
 		CID:	AgentId;
-		CHRES:	symkey;
+		CHRES:	Key;
 		dhs:	dhs;
-		key:	union { AgentId, symkey };
+		key:	Key;
 	end;
 
 	-- SN-UE exchange
@@ -91,7 +94,7 @@ type
 		HEID:	AgentId;
 		AID:	AgentId;
 		CID:	AgentId;
-		key:	symkey;
+		key:	Key;
 	end;
 
 	-- SN-HE exchange
@@ -105,7 +108,7 @@ type
 		source:	AgentId;		-- source of message
 		dest:	AgentId;		-- intended destination of message
 		mType:	MessageType;		-- type of message
-		key:	symkey;		-- key used for encryption
+		key:	Key;		-- key used for encryption
 		
 		uehe:	UEHEMessage;
 		snhe:	SNHEMessage;
@@ -124,7 +127,7 @@ type
 		state:	UEStates;
 		SN:	AgentId;
 		HE:	AgentId;
-		CHRES:	symkey;
+		CHRES:	Key;
 		dhs:	dhs;
 		AID:	AgentId;
 		-- UE*s CID and AID should be the same as its own ID
@@ -154,7 +157,7 @@ type
 
 	HE : record
 		state:	HEStates;
-		CHRESs:	array[UEID] of symkey;
+		CHRESs:	array[UEID] of Key;
 		dhs:	array[UEID] of dhs;
 	end;
 
@@ -180,9 +183,33 @@ var    	       	       	       	       	       	 -- state variables for
 
 
 -- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-function hasKey(key: symkey, entity: AgentId): boolean;
+function hasKey(key: Key; entity: AgentId): boolean;
 begin
-	return (isundefined(key) | key.entity1 = entity | key.entity2 = entity);
+	if (isundefined(key.isSymkey)) then return true; end;
+
+	if (key.isSymkey) then
+		return (key.entity1 = entity | key.entity2 = entity);
+	else
+		return (key.entity1 = entity);
+	end;
+end;
+
+function keysAreEqual(key1, key2: Key): boolean;
+begin
+	if (isundefined(key1.isSymkey) & isundefined(key2.isSymkey)) then return true; end;
+	if (key1.isSymkey != key2.isSymkey) then return false; end;
+
+	if (key1.isSymkey) then
+		return ((key1.entity1 = key2.entity1 & key1.entity2 = key2.entity2) | 
+				(key1.entity1 = key2.entity2 & key1.entity2 = key2.entity1));
+	else
+		return (key1.entity1 = key2.entity1);
+	end;
+end;
+
+function dhsAreEqual(dhs1, dhs2: dhs): boolean;
+begin
+	return (dhs1.UEID = dhs2.UEID & dhs1.SNID = dhs2.SNID & dhs1.HEID = dhs2.HEID);
 end;
 
 --------------------------------------------------------------------------------
@@ -197,34 +224,35 @@ ruleset i: UEID do
 	ruleset j: AgentId do
 		rule 20 "UE starts protocol (message M1)"
 
-			UEs[i].state = UE_IDLE &
-			(ismember(j,SNID) | ismember(j,AdvId)) & -- only responders and intruders
-			multisetcount (l:netA, true) < NetworkSize
+		UEs[i].state = UE_IDLE &
+		(ismember(j,SNID) | ismember(j,AdvId)) & -- only responders and intruders
+		multisetcount (l:netA, true) < NetworkSize
 
-			==>
-        
-			var
-				outM: Message;
+		==>
+    
+		var
+			outM: Message;
 
-			begin
-				undefine outM;
-				outM.source := i;
-				outM.dest := j;
-				outM.mType := M1;
-				outM.uehe.UEID := i;
-				outM.uehe.CID := i;
-				outM.uehe.CHRES.entity1 := i;
-				outM.uehe.CHRES.entity2 := UEs[i].HE;
-				outM.uehe.key := UEs[i].HE;
-				outM.snue.HEID := UEs[i].HE;
+		begin
+			undefine outM;
+			outM.source := i;
+			outM.dest := j;
+			outM.mType := M1;
+			outM.uehe.UEID := i;
+			outM.uehe.CID := i;
+			outM.uehe.CHRES.entity1 := i;
+			outM.uehe.CHRES.entity2 := UEs[i].HE;
+			outM.uehe.CHRES.isSymkey := true;
+			outM.uehe.key.entity1 := UEs[i].HE;
+			outM.uehe.key.isSymkey := false;
+			outM.snue.HEID := UEs[i].HE;
 
-				multisetadd (outM,netA);
+			multisetadd (outM,netA);
 
-				UEs[i].state := UE_WAIT_M4;
-				UEs[i].SN := j;
-				UEs[i].HE := UEs[i].HE;
-				UEs[i].CHRES := outM.uehe.CHRES;
-			end;
+			UEs[i].state := UE_WAIT_M4;
+			UEs[i].SN := j;
+			UEs[i].HE := UEs[i].HE;
+			UEs[i].CHRES := outM.uehe.CHRES;
 		end;
 	end;
 end;
@@ -232,44 +260,43 @@ end;
 -- UE responds to message M4
 ruleset i: UEID do
 	choose j: netA do
-		rule 20 "UE responds to message M4"
-			alias inM: netA[j] do
+		alias inM: netA[j] do
+			rule 20 "UE responds to message M4"
 
-				UEs[i].state = UE_WAIT_M4 &			-- UE expecting message M4
-				inM.dest = i &
-				ismember(inM.source,AdvId) &	-- only from intruder
-				inM.mtype = M4 &		      	-- message type is M4
-				hasKey(inM.key, i) &		-- UE can decrypt message
+			UEs[i].state = UE_WAIT_M4 &			-- UE expecting message M4
+			netA[j].dest = i &
+			ismember(netA[j].source,AdvId) &	-- only from intruder
+			netA[j].mType = M4 &		      	-- message type is M4
+			hasKey(netA[j].key, i) &		-- UE can decrypt message
 
-				hasKey(inM.uehe.key, i) & 		-- UE can decrypte message from HE
-				hasKey(inM.uehe.CHRES, i) &		-- CH/RES between UE and HEu is valid 
-				hasKey(inM.snue.key, i) & 		-- can decrypt with mtk
-				inM.uehe.CID = i & inM.snue.CID = i	-- CID from HE and SN agree
+			hasKey(netA[j].uehe.key, i) & 		-- UE can decrypte message from HE
+			hasKey(netA[j].uehe.CHRES, i) &		-- CH/RES between UE and HEu is valid 
+			hasKey(netA[j].snue.key, i) & 		-- can decrypt with mtk
+			netA[j].uehe.CID = i & netA[j].snue.CID = i	-- CID from HE and SN agree
 
-				==>
-        
-				var
-					outM: Message;
+			==>
+    
+			var
+				outM: Message;
 
-				begin
-					multisetremove (j,netA);
+			begin
+				multisetremove (j,netA);
 
-					undefine outM;
-					outM.source := i;
-					outM.dest := UEs[i].SN;
-					outM.key = inM.snue.key;
-					outM.mType := M5;
-					outM.uehe.CID := i;
-					outM.uehe.CHRES = inM.uehe.CHRES;
-					outM.uehe.key := inM.uehe.key;
-					outM.snue.AID := inM.snue.AID;
+				undefine outM;
+				outM.source := i;
+				outM.dest := UEs[i].SN;
+				outM.key := netA[j].snue.key;
+				outM.mType := M5;
+				outM.uehe.CID := i;
+				outM.uehe.CHRES := netA[j].uehe.CHRES;
+				outM.uehe.key := netA[j].uehe.key;
+				outM.snue.AID := netA[j].snue.AID;
 
-					multisetadd (outM,netA);
+				multisetadd (outM,netA);
 
-					UEs[i].state := UE_DONE;
-					UEs[i].dhs := inM.uehe.dhs;
-					UEs[i].AID := inM.snue.AID;
-				end;
+				UEs[i].state := UE_DONE;
+				UEs[i].dhs := netA[j].uehe.dhs;
+				UEs[i].AID := netA[j].snue.AID;
 			end;
 		end;
 	end;
@@ -282,38 +309,38 @@ end;
 -- SN responds to message M1
 ruleset i: SNID do
 	choose j: netA do
-		rule 20 "SN responds to message M1"
-			alias inM: netA[j] do
+		alias inM: netA[j] do
+			rule 20 "SN responds to message M1"
 
-				SNs[i].state = SN_IDLE &
-				inM.dest = i &
-				ismember(inM.source,AdvId) &
-				inM.type = M1 &
-				hasKey(inM.key, i)
+			SNs[i].state = SN_IDLE &
+			inM.dest = i &
+			ismember(inM.source,AdvId) &
+			inM.mType = M1 &
+			hasKey(inM.key, i)
 
-				==>
+			==>
 
-				var
-					outM: Message;
+			var
+				outM: Message;
 
-				begin
-					multisetremove (j,netA);
+			begin
+				multisetremove (j,netA);
 
-					undefine outM;
-					outM.source := i;
-					outM.dest := inM.snue.HEID;
-					outM.key.entity1 := i;
-					outM.key.entity2 := inM.snue.HEID;
-					outM.mType := M2;
-					outM.uehe := inM.uehe;
-					outM.snhe.DH := i;
+				undefine outM;
+				outM.source := i;
+				outM.dest := inM.snue.HEID;
+				outM.key.entity1 := i;
+				outM.key.entity2 := inM.snue.HEID;
+				outM.key.isSymkey := true;
+				outM.mType := M2;
+				outM.uehe := inM.uehe;
+				outM.snhe.DH := i;
 
-					multisetadd (outM,netB);
+				multisetadd (outM,netB);
 
-					SNs[i].state = SN_WAIT_M3;
-					if inM.uehe.key = i then
-						SNs[i].UEIDs[inM.uehe.UEID] := true;
-					end;
+				SNs[i].state := SN_WAIT_M3;
+				if hasKey(inM.uehe.key, i) then
+					SNs[i].UEIDs[inM.uehe.UEID] := true;
 				end;
 			end;
 		end;
@@ -323,42 +350,42 @@ end;
 -- SN responds to message M3
 ruleset i: SNID do
 	choose j: netB do
-		rule 20 "SN responds to message M3"
-			alias inM: netB[j] do
+		alias inM: netB[j] do
+			rule 20 "SN responds to message M3"
 
-				SNs[i].state = SN_WAIT_M3 &
-				inM.dest = i &
-				ismember(inM.source,HEID) &
-				inM.type = M3 &
-				hasKey(inM.key, i)
+			SNs[i].state = SN_WAIT_M3 &
+			inM.dest = i &
+			ismember(inM.source,HEID) &
+			inM.mType = M3 &
+			hasKey(inM.key, i)
 
-				==>
+			==>
 
-				var
-					outM: Message;
+			var
+				outM: Message;
 
-				begin
-					multisetremove (j,netB);
+			begin
+				multisetremove (j,netB);
 
-					undefine outM;
-					outM.source := i;
-					outM.dest := inM.snhe.CID; -- broadcast but just for state space constraints
-					outM.mType := M4;
-					outM.uehe := inM.uehe;
-					outM.snue.CID := inM.snhe.CID;
-					outM.snue.AID := inM.snhe.CID;
-					outM.snue.key.entity1 = i;
-					outM.snue.key.entity2 = inM.snhe.CID; -- since in our case CID is the same as UEID
+				undefine outM;
+				outM.source := i;
+				outM.dest := inM.snhe.CID; -- broadcast but just for state space constraints
+				outM.mType := M4;
+				outM.uehe := inM.uehe;
+				outM.snue.CID := inM.snhe.CID;
+				outM.snue.AID := inM.snhe.CID;
+				outM.snue.key.entity1 := i;
+				outM.snue.key.entity2 := inM.snhe.CID; -- since in our case CID is the same as UEID
+				outM.snue.key.isSymkey := true;
 
-					multisetadd (outM,netA);
+				multisetadd (outM,netA);
 
-					SNs[i].state = SN_WAIT_M5;
-					SNs[i].CIDtoHEID[inM.snhe.CID] = inM.source;
-					SNs[i].CIDtoAID[inM.snhe.CID] = outM.snue.AID;
-					SNs[i].dhs[inM.snhe.CID].UEID = inM.snhe.CID;
-					SNs[i].dhs[inM.snhe.CID].SNID = i;
-					SNs[i].dhs[inM.snhe.CID].HEID = inM.snhe.DH;
-				end;
+				SNs[i].state := SN_WAIT_M5;
+				SNs[i].CIDtoHEID[inM.snhe.CID] := inM.source;
+				SNs[i].CIDtoAID[inM.snhe.CID] := outM.snue.AID;
+				SNs[i].dhs[inM.snhe.CID].UEID := inM.snhe.CID;
+				SNs[i].dhs[inM.snhe.CID].SNID := i;
+				SNs[i].dhs[inM.snhe.CID].HEID := inM.snhe.DH;
 			end;
 		end;
 	end;
@@ -367,43 +394,44 @@ end;
 -- SN responds to message M5
 ruleset i: SNID do
 	choose j: netA do
-		rule 20 "SN responds to message M5"
-			alias inM: netA[j] do
+		alias inM: netA[j] do
+			rule 20 "SN responds to message M5"
 
-				SNs[i].state = SN_WAIT_M5 &
-				inM.dest = i &
-				ismember(inM.source,AdvId) &
-				inM.type = M5 &
-				hasKey(inM.key, i)
+			SNs[i].state = SN_WAIT_M5 &
+			inM.dest = i &
+			ismember(inM.source,AdvId) &
+			inM.mType = M5 &
+			hasKey(inM.key, i)
 
-				==>
+			==>
 
-				var
-					outM: Message;
-					CID:	AgentId;
+			var
+				outM: Message;
+				CID:	AgentId;
 
-				begin
-					multisetremove (j,netA);
-					
-					if inM.key.entity1 = i then
-						CID := inM.key.entity2;
-					else
-						CID := inM.key.entity1;
+			begin
+				multisetremove (j,netA);
+				
+				if inM.key.entity1 = i then
+					CID := inM.key.entity2;
+				else
+					CID := inM.key.entity1;
+				end;
 
-					if SNs[i].CIDtoAID[CID] = inM.snue.AID then
-						undefine outM;
-						outM.source := i;
-						outM.dest := SNs[i].CIDtoHEID[CID];
-						outM.key.entity1 := i;
-						outM.key.entity2 := SNs[i].CIDtoHEID[CID];
-						outM.mType := M6;
-						outM.uehe := inM.uehe;
-						outM.snhe.CID := CID;
+				if SNs[i].CIDtoAID[CID] = inM.snue.AID then
+					undefine outM;
+					outM.source := i;
+					outM.dest := SNs[i].CIDtoHEID[CID];
+					outM.key.entity1 := i;
+					outM.key.entity2 := SNs[i].CIDtoHEID[CID];
+					outM.key.isSymkey := true;
+					outM.mType := M6;
+					outM.uehe := inM.uehe;
+					outM.snhe.CID := CID;
 
-						multisetadd (outM,netB);
+					multisetadd (outM,netB);
 
-						SNs[i].state = SN_WAIT_M7;
-					end;
+					SNs[i].state := SN_WAIT_M7;
 				end;
 			end;
 		end;
@@ -413,22 +441,21 @@ end;
 -- SN responds to message M7
 ruleset i: SNID do
 	choose j: netB do
-		rule 20 "SN responds to message M7"
-			alias inM: netB[j] do
+		alias inM: netB[j] do
+			rule 20 "SN responds to message M7"
 
-				SNs[i].state = SN_WAIT_M7 &
-				inM.dest = i &
-				ismember(inM.source,HEID) &
-				inM.type = M7 &
-				hasKey(inM.key, i) &
+			SNs[i].state = SN_WAIT_M7 &
+			inM.dest = i &
+			ismember(inM.source,HEID) &
+			inM.mType = M7 &
+			hasKey(inM.key, i) &
 
-				SNs[i].CIDtoHEID[inM.snhe.CID] = inM.source
+			SNs[i].CIDtoHEID[inM.snhe.CID] = inM.source
 
-				==>
+			==>
 
-				begin
-					SNs[i].state = SN_DONE;
-				end;
+			begin
+				SNs[i].state := SN_DONE;
 			end;
 		end;
 	end;
@@ -441,45 +468,44 @@ end;
 -- HE responds to message M2
 ruleset i: HEID do
 	choose j: netB do
-		rule 20 "HE responds to message M2"
-			alias inM: netB[j] do
+		alias inM: netB[j] do
+			rule 20 "HE responds to message M2"
 
-				HEs[i].state = HE_IDLE &
-				inM.dest = i &
-				ismember(inM.source,SNID) &
-				inM.mType = M2 &
-				hasKey(inM.key, k) &
+			HEs[i].state = HE_IDLE &
+			inM.dest = i &
+			ismember(inM.source,SNID) &
+			inM.mType = M2 &
+			hasKey(inM.key, i) &
+			hasKey(inM.uehe.key, i) &
+			hasKey(inM.uehe.CHRES, i)
 
-				inM.uehe.key = i &
-				hasKey(inM.uehe.CHRES, i)
+			==>
 
-				==>
+			var
+				outM: Message;   -- outgoing message
 
-				var
-					outM: Message;   -- outgoing message
+			begin
+				multisetremove (j,netB);
 
-				begin
-					multisetremove (j,netB);
+				undefine outM;
+				outM.source := i;
+				outM.dest := inM.source;
+				outM.key := inM.key;
+				outM.mType := M3;
+				outM.uehe.CID := inM.uehe.CID;
+				outM.uehe.CHRES := inM.uehe.CHRES;
+				outM.uehe.dhs.UEID := inM.uehe.UEID;
+				outM.uehe.dhs.HEID := i;
+				outM.uehe.dhs.SNID := inM.snhe.DH;
+				outM.uehe.key.entity1 := inM.uehe.UEID;
+				outM.uehe.key.entity2 := i;
+				outM.uehe.key.isSymkey := true;
+				outM.snhe.DH := i;
 
-					undefine outM;
-					outM.source := i;
-					outM.dest := inM.source;
-					outM.key = inM.key;
-					outM.mType := M3;
-					outM.uehe.CID := inM.uehe.CID;
-					outM.uehe.CHRES := inM.uehe.CHRES;
-					outM.uehe.dhs.UEID := inM.uehe.UEID;
-					outM.uehe.dhs.HEID := i;
-					outM.uehe.dhs.SNID := inM.snhe.DH;
-					outM.uehe.key.entity1 := inM.uehe.UEID;
-					outM.uehe.key.entity2 := i;
-					outM.snhe.DH := i;
+				multisetadd (outM,netB);					
 
-					multisetadd (outM,netB);					
-
-					HEs[i].state = HE_WAIT_M6;
-					HEs[i].dhs[inM.uehe.UEID] = outM.uehe.dhs;
-				end;
+				HEs[i].state := HE_WAIT_M6;
+				HEs[i].dhs[inM.uehe.UEID] := outM.uehe.dhs;
 			end;
 		end;
 	end;
@@ -488,38 +514,37 @@ end;
 -- HE responds to message M6
 ruleset i: HEID do
 	choose j: netB do
-		rule 20 "HE responds to message M6"
-			alias inM: netB[j] do
+		alias inM: netB[j] do
+			rule 20 "HE responds to message M6"
 
-				HEs[i].state = HE_WAIT_M6 &
-				inM.dest = i &
-				ismember(inM.source,SNID) &
-				inM.mType = M6 &
-				hasKey(inM.key, k) &
+			HEs[i].state = HE_WAIT_M6 &
+			inM.dest = i &
+			ismember(inM.source,SNID) &
+			inM.mType = M6 &
+			hasKey(inM.key, i) &
 
-				hasKey(inM.uehe.key, i) &
-				hasKey(inM.uehe.CHRES, i) &
-				inM.uehe.CID = inM.snhe.CID
+			hasKey(inM.uehe.key, i) &
+			hasKey(inM.uehe.CHRES, i) &
+			inM.uehe.CID = inM.snhe.CID
 
-				==>
+			==>
 
-				var
-					outM: Message;   -- outgoing message
+			var
+				outM: Message;   -- outgoing message
 
-				begin
-					multisetremove (j,netB);
+			begin
+				multisetremove (j,netB);
 
-					undefine outM;
-					outM.source := i;
-					outM.dest := inM.source;
-					outM.mType := M7;
-					outM.snhe.CID = inM.snhe.CID;
+				undefine outM;
+				outM.source := i;
+				outM.dest := inM.source;
+				outM.mType := M7;
+				outM.snhe.CID := inM.snhe.CID;
 
-					multisetadd (outM,netB);					
+				multisetadd (outM,netB);					
 
-					HEs[i].state = HE_DONE;
-					HEs[i].CHRESs[inM.uehe.UEID] := inM.uehe.CHRES;
-				end;
+				HEs[i].state := HE_DONE;
+				HEs[i].CHRESs[inM.uehe.UEID] := inM.uehe.CHRES;
 			end;
 		end;
 	end;
@@ -532,96 +557,86 @@ end;
 -- intruder i intercepts messages
 ruleset i: AdvId do
 	choose j: netA do
-		rule 10 "intruder intercepts"
-			alias inM: netA[j] do
+		alias inM: netA[j] do
+			rule 10 "intruder intercepts"
 
-				!ismember (inM.source, AdvId) &    -- not for intruders* messages
+			!ismember (inM.source, AdvId)    -- not for intruders* messages
 
-				==>
+			==>
 
-				var
-					temp: Message;
+			var
+				temp: Message;
 
-				begin
-					temp := inM;
+			begin
+				temp := inM;
 
-					switch inM.mType
-						case M1:
-							if hasKey(inM.key, i) & inM.uehe.key = i then
-								adv[i].UEIDs[inM.uehe.UEID] := true;
-								adv[i].CIDs[inM.uehe.CID] := true;
-							end;
-						case M4:
-							if hasKey(inM.key, i) & (hasKey(inM.snue.key, i) | adv[i].dhs[inM.dest]) then
-								adv[i].CIDs[inM.snue.CID] := true;
-								adv[i].CIDtoAIDs[inM.snue.CID] := true;
-							end;
-							if hasKey(inM.uehe.key, i) then
-								adv[i].CIDs[inM.uehe.CID] := true;
-								adv[i].dhs[inM.uehe.dhs.UEID] := true;
-							end;
-						case M5:
-							if (hasKey(inM.key, i) | adv[i].dhs[inM.source]) &
-								hasKey(inM.uehe.key, i) then
-								adv[i].CIDs[inM.uehe.CID] := true;
-								adv[i].CIDtoAIDs[inM.snhe.CID] := true;
-							end;	    
-					end;
-
-					multisetadd (temp, adv[i].messages);
-					multisetremove (j,netA);
+				switch inM.mType
+					case M1:
+						if hasKey(inM.key, i) & hasKey(inM.uehe.key, i) then
+							adv[i].UEIDs[inM.uehe.UEID] := true;
+							adv[i].CIDs[inM.uehe.CID] := true;
+						end;
+					case M4:
+						if hasKey(inM.key, i) & (hasKey(inM.snue.key, i) | adv[i].dhs[inM.dest]) then
+							adv[i].CIDs[inM.snue.CID] := true;
+							adv[i].CIDtoAIDs[inM.snue.CID] := true;
+						end;
+						if hasKey(inM.uehe.key, i) then
+							adv[i].CIDs[inM.uehe.CID] := true;
+							adv[i].dhs[inM.uehe.dhs.UEID] := true;
+						end;
+					case M5:
+						if (hasKey(inM.key, i) | adv[i].dhs[inM.source]) &
+							hasKey(inM.uehe.key, i) then
+							adv[i].CIDs[inM.uehe.CID] := true;
+							adv[i].CIDtoAIDs[inM.snhe.CID] := true;
+						end;	    
 				end;
+
+				multisetadd (temp, adv[i].messages);
+				multisetremove (j,netA);
 			end;
 		end;
 	end;
-end;
-
-function isAppropriateRecipient(k: AgentId, msg: Message): boolean;
-begin
-	return ((ismember(k, SNID) &
-		 (msg.mType = M1 | msg.mType = M3 | msg.mType = M5 | msg.mType = M7)) |
-		(ismember(k, UEID) & msg.mType = M4) |
-		(ismember(k, HEID) & (msg.mType = M2 | msg.mType = M6)));
 end;
 
 -- intruder i generates message
 ruleset i: AdvId do
 	ruleset j: AgentId do
 		ruleset k: MessageType do
-			alias messages: adv[i].messages do
-				ruleset l: messages do
-					ruleset m: messages do
+			choose l: adv[i].messages do
+				choose m: adv[i].messages do
+					alias messages: adv[i].messages do
 						rule 90 "intruder generates message (recorded or frankenstein)"
 
-							((ismember(j, UEID) & k = M4) | 
-							(ismember(j, SNID) & (k = M1 | k = M5))) &
-							multisetcount (t:net, true) < NetworkSize
+						((ismember(j, UEID) & k = M4) | 
+						(ismember(j, SNID) & (k = M1 | k = M5))) &
+						multisetcount (t:netA, true) < NetworkSize
+					
+						==>
+
+						var
+							outM: Message;
 						
-							==>
+						begin
+							undefine outM;
+							outM.source := i;
+							outM.dest   := j;
+							outM.mType  := k;
 
-							var
-								outM: Message;
-							
-							begin
-								undefine outM;
-								outM.source := i;
-								outM.dest   := j;
-								outM.mType  := k;
-
-								-- If you can decrypt both message l and m, proceed with
-								-- frankenstein-ing. Otherwise just send message m.
-								if (hasKey(messages[l].key, i) |
-									(messages[l].mType = M5 & adv[i].dhs[messages[l].source]))	&
-									(hasKey(messages[m].key, i) |
-									(message[m].mType = M5 &	adv[i].dhs[messages[m].source])) then
-									outM.uehe := messages[l].uehe;
-									outM.snue := messages[m].snue;
-								else
-									outM := messages[m];
-								end;
-
-								multisetadd (outM,netA);
+							-- If you can decrypt both message l and m, proceed with
+							-- frankenstein-ing. Otherwise just send message m.
+							if (hasKey(messages[l].key, i) |
+								(messages[l].mType = M5 & adv[i].dhs[messages[l].source]))	&
+								(hasKey(messages[m].key, i) |
+								(messages[m].mType = M5 &	adv[i].dhs[messages[m].source])) then
+								outM.uehe := messages[l].uehe;
+								outM.snue := messages[m].snue;
+							else
+								outM := messages[m];
 							end;
+
+							multisetadd (outM,netA);
 						end;
 					end;
 				end;
@@ -670,7 +685,8 @@ startstate
 	end;
 
 	-- initialize network 
-	undefine net;
+	undefine netA;
+	undefine netB;
 end;
 
 
@@ -685,7 +701,7 @@ invariant "adversary does not learn identity of UE"
 			UEs[j].state = UE_DONE
 			->
 			(!adv[i].UEIDs[j] & !adv[i].CIDs[j])
-		end;
+		end
 	end;
 
 invariant "adversary does not learn location of UE"
@@ -695,7 +711,7 @@ invariant "adversary does not learn location of UE"
 			UEs[j].state = UE_DONE
 			->
 			!adv[i].CIDtoAIDs[j]
-		end;
+		end
 	end;
 
 invariant "SN does not learn identity of UE"
@@ -706,7 +722,7 @@ invariant "SN does not learn identity of UE"
 			UEs[j].state = UE_DONE
 			->
 			!SNs[i].UEIDs[j]
-		end;
+		end
 	end;
 
 invariant "SN and UE agree on AID"
@@ -716,8 +732,8 @@ invariant "SN and UE agree on AID"
 			SNs[i].state = SN_DONE &
 			UEs[j].state = UE_DONE
 			->
-			SNs[i].CIDtoAIDs[j] = UEs[j].AID
-		end;
+			SNs[i].CIDtoAID[j] = UEs[j].AID
+		end
 	end;
 
 invariant "HE and UE are mutually authenticated"
@@ -727,8 +743,8 @@ invariant "HE and UE are mutually authenticated"
 			HEs[i].state = HE_DONE &
 			UEs[j].state = UE_DONE
 			->
-			HEs[i].CHRESs[j] = UEs[j].CHRES
-		end;
+			keysAreEqual(HEs[i].CHRESs[j], UEs[j].CHRES)
+		end
 	end;
 
 invariant "HE, SN, and UE agree that protocol has ended"
@@ -740,8 +756,8 @@ invariant "HE, SN, and UE agree that protocol has ended"
 				->
 				HEs[i].state = HE_DONE &
 				UEs[k].state = UE_DONE
-			end;
-		end;
+			end
+		end
 	end;
 
 invariant "HE, SN, and UE agree on dhs"
@@ -753,8 +769,8 @@ invariant "HE, SN, and UE agree on dhs"
 				SNs[j].state = SN_DONE &
 				UEs[k].state = UE_DONE
 				->
-				UEs[k].dhs = SNs[j].dhs[k] &
-				UEs[k].dhs = HEs[i].dhs[k]
-			end;
-		end;
+				dhsAreEqual(UEs[k].dhs, SNs[j].dhs[k]) &
+				dhsAreEqual(UEs[k].dhs, HEs[i].dhs[k])
+			end
+		end
 	end;
