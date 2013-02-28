@@ -323,8 +323,6 @@ ruleset i: SNID do
 				outM: Message;
 
 			begin
-				multisetremove (j,netA);
-
 				undefine outM;
 				outM.source := i;
 				outM.dest := inM.snue.HEID;
@@ -341,6 +339,8 @@ ruleset i: SNID do
 				if hasKey(inM.uehe.key, i) then
 					SNs[i].UEIDs[inM.uehe.UEID] := true;
 				end;
+
+				multisetremove (j,netA);
 			end;
 
 
@@ -358,9 +358,7 @@ ruleset i: SNID do
 				outM: Message;
 				CID:	AgentId;
 
-			begin
-				multisetremove (j,netA);
-				
+			begin				
 				if inM.key.entity1 = i then
 					CID := inM.key.entity2;
 				else
@@ -382,6 +380,8 @@ ruleset i: SNID do
 
 					SNs[i].state := SN_WAIT_M7;
 				end;
+
+				multisetremove (j,netA);
 			end;
 		end;
 	end;
