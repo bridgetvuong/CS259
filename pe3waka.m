@@ -250,8 +250,6 @@ ruleset i: UEID do
 			multisetadd (outM,netA);
 
 			UEs[i].state := UE_WAIT_M4;
-			UEs[i].SN := j;
-			UEs[i].HE := UEs[i].HE;
 			UEs[i].CHRES := outM.uehe.CHRES;
 		end;
 	end;
@@ -632,10 +630,15 @@ end;
 startstate
 	-- initialize UEs
 	undefine UEs;
+	-- TODO: make SN, HE assignment many-to-one
 	for i: UEID do
 	    UEs[i].state := UE_IDLE;
-	    UEs[i].SN := i;
-	    UEs[i].HE := i;
+	    for s : SNID do
+		    UEs[i].SN := s;
+			for h : HEID do
+			    UEs[i].HE := h;
+		    end;
+		end;
 	end;
 
 	-- initialize SNs
