@@ -306,7 +306,6 @@ end;
 --------------------------------------------------------------------------------
 -- behavior of SNs
 
--- SN responds to message M1
 ruleset i: SNID do
 	choose j: netA do
 		alias inM: netA[j] do
@@ -343,58 +342,8 @@ ruleset i: SNID do
 					SNs[i].UEIDs[inM.uehe.UEID] := true;
 				end;
 			end;
-		end;
-	end;
-end;
 
--- SN responds to message M3
-ruleset i: SNID do
-	choose j: netB do
-		alias inM: netB[j] do
-			rule 20 "SN responds to message M3"
 
-			SNs[i].state = SN_WAIT_M3 &
-			inM.dest = i &
-			ismember(inM.source,HEID) &
-			inM.mType = M3 &
-			hasKey(inM.key, i)
-
-			==>
-
-			var
-				outM: Message;
-
-			begin
-				multisetremove (j,netB);
-
-				undefine outM;
-				outM.source := i;
-				outM.dest := inM.snhe.CID; -- broadcast but just for state space constraints
-				outM.mType := M4;
-				outM.uehe := inM.uehe;
-				outM.snue.CID := inM.snhe.CID;
-				outM.snue.AID := inM.snhe.CID;
-				outM.snue.key.entity1 := i;
-				outM.snue.key.entity2 := inM.snhe.CID; -- since in our case CID is the same as UEID
-				outM.snue.key.isSymkey := true;
-
-				multisetadd (outM,netA);
-
-				SNs[i].state := SN_WAIT_M5;
-				SNs[i].CIDtoHEID[inM.snhe.CID] := inM.source;
-				SNs[i].CIDtoAID[inM.snhe.CID] := outM.snue.AID;
-				SNs[i].dhs[inM.snhe.CID].UEID := inM.snhe.CID;
-				SNs[i].dhs[inM.snhe.CID].SNID := i;
-				SNs[i].dhs[inM.snhe.CID].HEID := inM.snhe.DH;
-			end;
-		end;
-	end;
-end;
-
--- SN responds to message M5
-ruleset i: SNID do
-	choose j: netA do
-		alias inM: netA[j] do
 			rule 20 "SN responds to message M5"
 
 			SNs[i].state = SN_WAIT_M5 &
@@ -438,10 +387,47 @@ ruleset i: SNID do
 	end;
 end;
 
--- SN responds to message M7
 ruleset i: SNID do
 	choose j: netB do
 		alias inM: netB[j] do
+			rule 20 "SN responds to message M3"
+
+			SNs[i].state = SN_WAIT_M3 &
+			inM.dest = i &
+			ismember(inM.source,HEID) &
+			inM.mType = M3 &
+			hasKey(inM.key, i)
+
+			==>
+
+			var
+				outM: Message;
+
+			begin
+				multisetremove (j,netB);
+
+				undefine outM;
+				outM.source := i;
+				outM.dest := inM.snhe.CID; -- broadcast but just for state space constraints
+				outM.mType := M4;
+				outM.uehe := inM.uehe;
+				outM.snue.CID := inM.snhe.CID;
+				outM.snue.AID := inM.snhe.CID;
+				outM.snue.key.entity1 := i;
+				outM.snue.key.entity2 := inM.snhe.CID; -- since in our case CID is the same as UEID
+				outM.snue.key.isSymkey := true;
+
+				multisetadd (outM,netA);
+
+				SNs[i].state := SN_WAIT_M5;
+				SNs[i].CIDtoHEID[inM.snhe.CID] := inM.source;
+				SNs[i].CIDtoAID[inM.snhe.CID] := outM.snue.AID;
+				SNs[i].dhs[inM.snhe.CID].UEID := inM.snhe.CID;
+				SNs[i].dhs[inM.snhe.CID].SNID := i;
+				SNs[i].dhs[inM.snhe.CID].HEID := inM.snhe.DH;
+			end;
+
+
 			rule 20 "SN responds to message M7"
 
 			SNs[i].state = SN_WAIT_M7 &
@@ -465,7 +451,6 @@ end;
 --------------------------------------------------------------------------------
 -- behavior of HEs
 
--- HE responds to message M2
 ruleset i: HEID do
 	choose j: netB do
 		alias inM: netB[j] do
@@ -507,14 +492,8 @@ ruleset i: HEID do
 				HEs[i].state := HE_WAIT_M6;
 				HEs[i].dhs[inM.uehe.UEID] := outM.uehe.dhs;
 			end;
-		end;
-	end;
-end;
 
--- HE responds to message M6
-ruleset i: HEID do
-	choose j: netB do
-		alias inM: netB[j] do
+
 			rule 20 "HE responds to message M6"
 
 			HEs[i].state = HE_WAIT_M6 &
