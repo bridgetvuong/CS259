@@ -262,15 +262,15 @@ ruleset i: UEID do
 			rule 20 "UE responds to message M4"
 
 			UEs[i].state = UE_WAIT_M4 &			-- UE expecting message M4
-			netA[j].dest = i &
-			ismember(netA[j].source,AdvId) &	-- only from intruder
-			netA[j].mType = M4 &		      	-- message type is M4
-			hasKey(netA[j].key, i) &		-- UE can decrypt message
+			inM.dest = i &
+			ismember(inM.source,AdvId) &	-- only from intruder
+			inM.mType = M4 &		      	-- message type is M4
+			hasKey(inM.key, i) &		-- UE can decrypt message
 
-			hasKey(netA[j].uehe.key, i) & 		-- UE can decrypte message from HE
-			hasKey(netA[j].uehe.CHRES, i) &		-- CH/RES between UE and HEu is valid 
-			hasKey(netA[j].snue.key, i) & 		-- can decrypt with mtk
-			netA[j].uehe.CID = i & netA[j].snue.CID = i	-- CID from HE and SN agree
+			hasKey(inM.uehe.key, i) & 		-- UE can decrypte message from HE
+			hasKey(inM.uehe.CHRES, i) &		-- CH/RES between UE and HEu is valid 
+			hasKey(inM.snue.key, i) & 		-- can decrypt with mtk
+			inM.uehe.CID = i & inM.snue.CID = i	-- CID from HE and SN agree
 
 			==>
     
@@ -278,23 +278,22 @@ ruleset i: UEID do
 				outM: Message;
 
 			begin
-				multisetremove (j,netA);
-
 				undefine outM;
 				outM.source := i;
 				outM.dest := UEs[i].SN;
-				outM.key := netA[j].snue.key;
+				outM.key := inM.snue.key;
 				outM.mType := M5;
 				outM.uehe.CID := i;
-				outM.uehe.CHRES := netA[j].uehe.CHRES;
-				outM.uehe.key := netA[j].uehe.key;
-				outM.snue.AID := netA[j].snue.AID;
-
-				multisetadd (outM,netA);
+				outM.uehe.CHRES := inM.uehe.CHRES;
+				outM.uehe.key := inM.uehe.key;
+				outM.snue.AID := inM.snue.AID;
 
 				UEs[i].state := UE_DONE;
-				UEs[i].dhs := netA[j].uehe.dhs;
-				UEs[i].AID := netA[j].snue.AID;
+				UEs[i].dhs := inM.uehe.dhs;
+				UEs[i].AID := inM.snue.AID;
+
+				multisetremove (j,netA);
+				multisetadd (outM,netA);
 			end;
 		end;
 	end;
@@ -331,14 +330,13 @@ ruleset i: SNID do
 				outM.uehe := inM.uehe;
 				outM.snhe.DH := i;
 
-				multisetadd (outM,netB);
-
 				SNs[i].state := SN_WAIT_M3;
 				if hasKey(inM.uehe.key, i) then
 					SNs[i].UEIDs[inM.uehe.UEID] := true;
 				end;
 
 				multisetremove (j,netA);
+				multisetadd (outM,netB);
 			end;
 
 
@@ -402,7 +400,6 @@ ruleset i: SNID do
 				outM: Message;
 
 			begin
-				multisetremove (j,netB);
 
 				undefine outM;
 				outM.source := i;
@@ -415,14 +412,15 @@ ruleset i: SNID do
 				outM.snue.key.entity2 := inM.snhe.CID; -- since in our case CID is the same as UEID
 				outM.snue.key.isSymkey := true;
 
-				multisetadd (outM,netA);
-
 				SNs[i].state := SN_WAIT_M5;
 				SNs[i].CIDtoHEID[inM.snhe.CID] := inM.source;
 				SNs[i].CIDtoAID[inM.snhe.CID] := outM.snue.AID;
 				SNs[i].dhs[inM.snhe.CID].UEID := inM.snhe.CID;
 				SNs[i].dhs[inM.snhe.CID].SNID := i;
 				SNs[i].dhs[inM.snhe.CID].HEID := inM.snhe.DH;
+
+				multisetremove (j,netB);
+				multisetadd (outM,netA);
 			end;
 
 
@@ -468,8 +466,6 @@ ruleset i: HEID do
 				outM: Message;   -- outgoing message
 
 			begin
-				multisetremove (j,netB);
-
 				undefine outM;
 				outM.source := i;
 				outM.dest := inM.source;
@@ -484,11 +480,13 @@ ruleset i: HEID do
 				outM.uehe.key.entity2 := i;
 				outM.uehe.key.isSymkey := true;
 				outM.snhe.DH := i;
-
-				multisetadd (outM,netB);					
+				outM.snhe.CID := inM.uehe.CID;
 
 				HEs[i].state := HE_WAIT_M6;
 				HEs[i].dhs[inM.uehe.UEID] := outM.uehe.dhs;
+
+				multisetremove (j,netB);
+				multisetadd (outM,netB);					
 			end;
 
 
@@ -510,18 +508,17 @@ ruleset i: HEID do
 				outM: Message;   -- outgoing message
 
 			begin
-				multisetremove (j,netB);
-
 				undefine outM;
 				outM.source := i;
 				outM.dest := inM.source;
 				outM.mType := M7;
 				outM.snhe.CID := inM.snhe.CID;
 
-				multisetadd (outM,netB);					
-
 				HEs[i].state := HE_DONE;
-				HEs[i].CHRESs[inM.uehe.UEID] := inM.uehe.CHRES;
+				HEs[i].CHRESs[inM.uehe.CID] := inM.uehe.CHRES;
+
+				multisetremove (j,netB);
+				multisetadd (outM,netB);					
 			end;
 		end;
 	end;
@@ -570,8 +567,8 @@ ruleset i: AdvId do
 						end;	    
 				end;
 
-				multisetadd (temp, adv[i].messages);
 				multisetremove (j,netA);
+				multisetadd (temp, adv[i].messages);
 			end;
 		end;
 	end;
@@ -598,9 +595,6 @@ ruleset i: AdvId do
 						
 						begin
 							undefine outM;
-							outM.source := i;
-							outM.dest   := j;
-							outM.mType  := k;
 
 							-- If you can decrypt both message l and m, proceed with
 							-- frankenstein-ing. Otherwise just send message m.
@@ -614,6 +608,9 @@ ruleset i: AdvId do
 								outM := messages[m];
 							end;
 
+							outM.source := i;
+							outM.dest   := j;
+							outM.mType  := k;
 							multisetadd (outM,netA);
 						end;
 					end;
