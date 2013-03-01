@@ -109,6 +109,7 @@ type
 		dest:	AgentId;		-- intended destination of message
 		mType:	MessageType;		-- type of message
 		key:	Key;		-- key used for encryption
+		transactionId: UEID;	-- used to group messages within a single authentication attempt
 		
 		uehe:	UEHEMessage;
 		snhe:	SNHEMessage;
@@ -142,7 +143,7 @@ type
 	};
 
 	SN : record
-		state:		 SNStates;
+		states:		 array[UEID] of SNStates;
 		UEIDs:		 array[UEID] of boolean;
 		CIDtoHEID: 	 array[UEID] of AgentId;
 		CIDtoAID:	 array[UEID] of AgentId; -- mapping from CID to AID should be equality
@@ -156,7 +157,7 @@ type
 	};
 
 	HE : record
-		state:	HEStates;
+		states:	array[UEID] of HEStates;
 		CHRESs:	array[UEID] of Key;
 		dhs:	array[UEID] of dhs;
 	end;
@@ -238,6 +239,7 @@ ruleset i: UEID do
 			outM.source := i;
 			outM.dest := j;
 			outM.mType := M1;
+			outM.transactionId := i;
 			outM.uehe.UEID := i;
 			outM.uehe.CID := i;
 			outM.uehe.CHRES.entity1 := i;
@@ -283,6 +285,7 @@ ruleset i: UEID do
 				outM.dest := UEs[i].SN;
 				outM.key := inM.snue.key;
 				outM.mType := M5;
+				outM.transactionId := inM.transactionId;
 				outM.uehe.CID := i;
 				outM.uehe.CHRES := inM.uehe.CHRES;
 				outM.uehe.key := inM.uehe.key;
@@ -308,7 +311,7 @@ ruleset i: SNID do
 		alias inM: netA[j] do
 			rule 20 "SN responds to message M1"
 
-			SNs[i].state = SN_IDLE &
+			SNs[i].states[inM.transactionId] = SN_IDLE &
 			inM.dest = i &
 			ismember(inM.source,AdvId) &
 			inM.mType = M1 &
@@ -327,10 +330,11 @@ ruleset i: SNID do
 				outM.key.entity2 := inM.snue.HEID;
 				outM.key.isSymkey := true;
 				outM.mType := M2;
+				outM.transactionId := inM.transactionId;
 				outM.uehe := inM.uehe;
 				outM.snhe.DH := i;
 
-				SNs[i].state := SN_WAIT_M3;
+				SNs[i].states[inM.transactionId] := SN_WAIT_M3;
 				if hasKey(inM.uehe.key, i) then
 					SNs[i].UEIDs[inM.uehe.UEID] := true;
 				end;
@@ -342,7 +346,7 @@ ruleset i: SNID do
 
 			rule 20 "SN responds to message M5"
 
-			SNs[i].state = SN_WAIT_M5 &
+			SNs[i].states[inM.transactionId] = SN_WAIT_M5 &
 			inM.dest = i &
 			ismember(inM.source,AdvId) &
 			inM.mType = M5 &
@@ -369,12 +373,13 @@ ruleset i: SNID do
 					outM.key.entity2 := SNs[i].CIDtoHEID[CID];
 					outM.key.isSymkey := true;
 					outM.mType := M6;
+					outM.transactionId := inM.transactionId;
 					outM.uehe := inM.uehe;
 					outM.snhe.CID := CID;
 
 					multisetadd (outM,netB);
 
-					SNs[i].state := SN_WAIT_M7;
+					SNs[i].states[inM.transactionId] := SN_WAIT_M7;
 				end;
 
 				multisetremove (j,netA);
@@ -388,7 +393,7 @@ ruleset i: SNID do
 		alias inM: netB[j] do
 			rule 20 "SN responds to message M3"
 
-			SNs[i].state = SN_WAIT_M3 &
+			SNs[i].states[inM.transactionId] = SN_WAIT_M3 &
 			inM.dest = i &
 			ismember(inM.source,HEID) &
 			inM.mType = M3 &
@@ -405,6 +410,7 @@ ruleset i: SNID do
 				outM.source := i;
 				outM.dest := inM.snhe.CID; -- broadcast but just for state space constraints
 				outM.mType := M4;
+				outM.transactionId := inM.transactionId;
 				outM.uehe := inM.uehe;
 				outM.snue.CID := inM.snhe.CID;
 				outM.snue.AID := inM.snhe.CID;
@@ -412,7 +418,7 @@ ruleset i: SNID do
 				outM.snue.key.entity2 := inM.snhe.CID; -- since in our case CID is the same as UEID
 				outM.snue.key.isSymkey := true;
 
-				SNs[i].state := SN_WAIT_M5;
+				SNs[i].states[inM.transactionId] := SN_WAIT_M5;
 				SNs[i].CIDtoHEID[inM.snhe.CID] := inM.source;
 				SNs[i].CIDtoAID[inM.snhe.CID] := outM.snue.AID;
 				SNs[i].dhs[inM.snhe.CID].UEID := inM.snhe.CID;
@@ -426,7 +432,7 @@ ruleset i: SNID do
 
 			rule 20 "SN responds to message M7"
 
-			SNs[i].state = SN_WAIT_M7 &
+			SNs[i].states[inM.transactionId] = SN_WAIT_M7 &
 			inM.dest = i &
 			ismember(inM.source,HEID) &
 			inM.mType = M7 &
@@ -437,7 +443,7 @@ ruleset i: SNID do
 			==>
 
 			begin
-				SNs[i].state := SN_DONE;
+				SNs[i].states[inM.transactionId] := SN_DONE;
 			end;
 		end;
 	end;
@@ -452,7 +458,7 @@ ruleset i: HEID do
 		alias inM: netB[j] do
 			rule 20 "HE responds to message M2"
 
-			HEs[i].state = HE_IDLE &
+			HEs[i].states[inM.transactionId] = HE_IDLE &
 			inM.dest = i &
 			ismember(inM.source,SNID) &
 			inM.mType = M2 &
@@ -471,6 +477,7 @@ ruleset i: HEID do
 				outM.dest := inM.source;
 				outM.key := inM.key;
 				outM.mType := M3;
+				outM.transactionId := inM.transactionId;
 				outM.uehe.CID := inM.uehe.CID;
 				outM.uehe.CHRES := inM.uehe.CHRES;
 				outM.uehe.dhs.UEID := inM.uehe.UEID;
@@ -482,7 +489,7 @@ ruleset i: HEID do
 				outM.snhe.DH := i;
 				outM.snhe.CID := inM.uehe.CID;
 
-				HEs[i].state := HE_WAIT_M6;
+				HEs[i].states[inM.transactionId] := HE_WAIT_M6;
 				HEs[i].dhs[inM.uehe.UEID] := outM.uehe.dhs;
 
 				multisetremove (j,netB);
@@ -492,7 +499,7 @@ ruleset i: HEID do
 
 			rule 20 "HE responds to message M6"
 
-			HEs[i].state = HE_WAIT_M6 &
+			HEs[i].states[inM.transactionId] = HE_WAIT_M6 &
 			inM.dest = i &
 			ismember(inM.source,SNID) &
 			inM.mType = M6 &
@@ -512,9 +519,10 @@ ruleset i: HEID do
 				outM.source := i;
 				outM.dest := inM.source;
 				outM.mType := M7;
+				outM.transactionId := inM.transactionId;
 				outM.snhe.CID := inM.snhe.CID;
 
-				HEs[i].state := HE_DONE;
+				HEs[i].states[inM.transactionId] := HE_DONE;
 				HEs[i].CHRESs[inM.uehe.CID] := inM.uehe.CHRES;
 
 				multisetremove (j,netB);
@@ -604,6 +612,7 @@ ruleset i: AdvId do
 								(messages[m].mType = M5 &	adv[i].dhs[messages[m].source])) then
 								outM.uehe := messages[l].uehe;
 								outM.snue := messages[m].snue;
+								outM.transactionId := messages[l].transactionId;
 							else
 								outM := messages[m];
 							end;
@@ -641,8 +650,8 @@ startstate
 	-- initialize SNs
 	undefine SNs;
 	for i: SNID do
-		SNs[i].state := SN_IDLE;
 		for j: UEID do
+			SNs[i].states[j] := SN_IDLE;
 			SNs[i].UEIDs[j] := false;
 		end;
 	end;
@@ -650,7 +659,9 @@ startstate
 	-- initialize HEs
 	undefine HEs;
 	for i: HEID do
-		HEs[i].state := HE_IDLE;
+		for j : UEID do
+			HEs[i].states[j] := HE_IDLE;
+		end;
 	end;
 
 	-- initialize intruders
@@ -698,7 +709,7 @@ invariant "SN does not learn identity of UE"
 	forall i: SNID do
 		forall j: UEID do
 
-			SNs[i].state = SN_DONE &
+			SNs[i].states[j] = SN_DONE &
 			UEs[j].state = UE_DONE
 			->
 			!SNs[i].UEIDs[j]
@@ -709,7 +720,7 @@ invariant "SN and UE agree on AID"
 	forall i: SNID do
 		forall j: UEID do
 
-			SNs[i].state = SN_DONE &
+			SNs[i].states[j] = SN_DONE &
 			UEs[j].state = UE_DONE
 			->
 			SNs[i].CIDtoAID[j] = UEs[j].AID
@@ -720,7 +731,7 @@ invariant "HE and UE are mutually authenticated"
 	forall i: HEID do
 		forall j: UEID do
 
-			HEs[i].state = HE_DONE &
+			HEs[i].states[j] = HE_DONE &
 			UEs[j].state = UE_DONE
 			->
 			keysAreEqual(HEs[i].CHRESs[j], UEs[j].CHRES)
@@ -728,16 +739,11 @@ invariant "HE and UE are mutually authenticated"
 	end;
 
 invariant "HE, SN, and UE agree that protocol has ended"
-	forall i: HEID do
-		forall j: SNID do
-			forall k: UEID do
-
-				SNs[j].state = SN_DONE
-				->
-				HEs[i].state = HE_DONE &
-				UEs[k].state = UE_DONE
-			end
-		end
+	forall i: UEID do
+		SNs[UEs[i].SN].states[i] = SN_DONE
+		->
+		HEs[UEs[i].HE].states[i] = HE_DONE &
+		UEs[i].state = UE_DONE
 	end;
 
 invariant "HE, SN, and UE agree on dhs"
@@ -745,8 +751,8 @@ invariant "HE, SN, and UE agree on dhs"
 		forall j: SNID do
 			forall k: UEID do
 
-				HEs[i].state = HE_DONE &
-				SNs[j].state = SN_DONE &
+				HEs[i].states[k] = HE_DONE &
+				SNs[j].states[k] = SN_DONE &
 				UEs[k].state = UE_DONE
 				->
 				dhsAreEqual(UEs[k].dhs, SNs[j].dhs[k]) &
