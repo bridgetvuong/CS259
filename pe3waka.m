@@ -131,8 +131,8 @@ type
 		HE:	AgentId;
 		CHRES:	Key;
 		dhs:	dhs;
+		CID:	AgentId;
 		AID:	AgentId;
-		-- UE*s CID and AID should be the same as its own ID
 	end;
 
 	SNStates : enum {
@@ -145,6 +145,7 @@ type
 
 	SN : record
 		states:		 array[UEID] of SNStates;
+		CIDs:		 array[UEID] of AgentId;
 		UEIDs:		 array[UEID] of boolean;
 		CIDtoHEID: 	 array[UEID] of AgentId;
 		CIDtoAID:	 array[UEID] of AgentId; -- mapping from CID to AID should be equality
@@ -159,6 +160,7 @@ type
 
 	HE : record
 		states:	array[UEID] of HEStates;
+		CIDs:		 array[UEID] of AgentId;
 		CHRESs:	array[UEID] of Key;
 		dhs:	array[UEID] of dhs;
 	end;
@@ -253,6 +255,7 @@ ruleset i: UEID do
 			multisetadd (outM,netA);
 
 			UEs[i].state := UE_WAIT_M4;
+			UEs[i].CID := i;
 			UEs[i].CHRES := outM.uehe.CHRES;
 		end;
 	end;
@@ -273,7 +276,7 @@ ruleset i: UEID do
 			hasKey(inM.uehe.key, i) & 		-- UE can decrypte message from HE
 			hasKey(inM.uehe.CHRES, i) &		-- CH/RES between UE and HEu is valid 
 			hasKey(inM.snue.key, i) & 		-- can decrypt with mtk
-			inM.uehe.CID = i & inM.snue.CID = i	-- CID from HE and SN agree
+			inM.uehe.CID = UEs[i].CID & inM.snue.CID = UEs[i].CID	-- CID from HE and SN agree
 
 			==>
     
@@ -287,7 +290,7 @@ ruleset i: UEID do
 				outM.key := inM.snue.key;
 				outM.mType := M5;
 				outM.transactionId := inM.transactionId;
-				outM.uehe.CID := i;
+				outM.uehe.CID := UEs[i].CID;
 				outM.uehe.CHRES := inM.uehe.CHRES;
 				outM.uehe.key := inM.uehe.key;
 				outM.snue.AID := inM.snue.AID;
@@ -444,6 +447,7 @@ ruleset i: SNID do
 			==>
 
 			begin
+				SNs[i].CIDs[inM.transactionId] := inM.snhe.CID;
 				SNs[i].states[inM.transactionId] := SN_DONE;
 			end;
 		end;
@@ -491,6 +495,7 @@ ruleset i: HEID do
 				outM.snhe.CID := inM.uehe.CID;
 
 				HEs[i].states[inM.transactionId] := HE_WAIT_M6;
+				HEs[i].CIDs[inM.uehe.UEID] := inM.uehe.CID;
 				HEs[i].dhs[inM.uehe.UEID] := outM.uehe.dhs;
 
 				multisetremove (j,netB);
@@ -760,4 +765,12 @@ invariant "HE, SN, and UE agree on dhs"
 				dhsAreEqual(UEs[k].dhs, HEs[i].dhs[k])
 			end
 		end
+invariant "HE, SN, and UE agree on CID"
+	forall i: UEID do
+		HEs[UEs[i].HE].states[i] = HE_DONE &
+		SNs[UEs[i].SN].states[i] = SN_DONE &
+		UEs[i].state = UE_DONE
+		->
+		UEs[i].CID = SNs[UEs[i].SN].CIDs[i] &
+		UEs[i].CID = HEs[UEs[i].HE].CIDs[i]
 	end;
