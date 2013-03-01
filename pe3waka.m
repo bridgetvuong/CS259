@@ -723,25 +723,19 @@ invariant "SN does not learn identity of UE"
 	end;
 
 invariant "SN and UE agree on AID"
-	forall i: SNID do
-		forall j: UEID do
-
-			SNs[i].states[j] = SN_DONE &
-			UEs[j].state = UE_DONE
-			->
-			SNs[i].CIDtoAID[j] = UEs[j].AID
-		end
+	forall i: UEID do
+		SNs[UEs[i].SN].states[i] = SN_DONE &
+		UEs[i].state = UE_DONE
+		->
+		SNs[UEs[i].SN].CIDtoAID[i] = UEs[i].AID
 	end;
 
 invariant "HE and UE are mutually authenticated"
-	forall i: HEID do
-		forall j: UEID do
-
-			HEs[i].states[j] = HE_DONE &
-			UEs[j].state = UE_DONE
-			->
-			keysAreEqual(HEs[i].CHRESs[j], UEs[j].CHRES)
-		end
+	forall i: UEID do
+		HEs[UEs[i].HE].states[i] = HE_DONE &
+		UEs[i].state = UE_DONE
+		->
+		keysAreEqual(HEs[UEs[i].HE].CHRESs[i], UEs[i].CHRES)
 	end;
 
 invariant "HE, SN, and UE agree that protocol has ended"
@@ -753,18 +747,15 @@ invariant "HE, SN, and UE agree that protocol has ended"
 	end;
 
 invariant "HE, SN, and UE agree on dhs"
-	forall i: HEID do
-		forall j: SNID do
-			forall k: UEID do
+	forall i: UEID do
+		HEs[UEs[i].HE].states[i] = HE_DONE &
+		SNs[UEs[i].SN].states[i] = SN_DONE &
+		UEs[i].state = UE_DONE
+		->
+		dhsAreEqual(UEs[i].dhs, SNs[UEs[i].SN].dhs[i]) &
+		dhsAreEqual(UEs[i].dhs, HEs[UEs[i].HE].dhs[i])
+	end;
 
-				HEs[i].states[k] = HE_DONE &
-				SNs[j].states[k] = SN_DONE &
-				UEs[k].state = UE_DONE
-				->
-				dhsAreEqual(UEs[k].dhs, SNs[j].dhs[k]) &
-				dhsAreEqual(UEs[k].dhs, HEs[i].dhs[k])
-			end
-		end
 invariant "HE, SN, and UE agree on CID"
 	forall i: UEID do
 		HEs[UEs[i].HE].states[i] = HE_DONE &
