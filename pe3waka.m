@@ -36,13 +36,13 @@
 -- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 const
 
-	NumUEs:   1;   -- number of user entities
+	NumUEs:   3;   -- number of user entities
 	NumSNs:   1;   -- number of serving networks
 	NumHEs:   1;   -- number of home environments
 	NumAdvs:  1;   -- number of intruders
-	MaxKnowledge:   10;   -- max. number of messages intruder can remember
 	NetworkASize:   3;   -- max. number of outstanding messages in network
 	NetworkBSize:	NumUEs;
+	MaxKnowledge:   20;   -- max. number of messages intruder can remember
 
 
 -- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
