@@ -40,8 +40,9 @@ const
 	NumSNs:   1;   -- number of serving networks
 	NumHEs:   1;   -- number of home environments
 	NumAdvs:  1;   -- number of intruders
-	NetworkSize:     1;   -- max. number of outstanding messages in network
 	MaxKnowledge:   10;   -- max. number of messages intruder can remember
+	NetworkASize:   3;   -- max. number of outstanding messages in network
+	NetworkBSize:	NumUEs;
 
 
 -- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -175,8 +176,8 @@ type
 
 -- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 var    	       	       	       	       	       	 -- state variables for
-	netA: multiset[NetworkSize] of Message;  --  network interface A
-	netB: multiset[NetworkSize] of Message;  --  network interface B
+	netA: multiset[NetworkASize] of Message;  --  network interface A
+	netB: multiset[NetworkBSize] of Message;  --  network interface B
 	UEs:  array[UEID] of UE;       		 --  UEs
 	SNs:  array[SNID] of SN;		 --  SNs
 	HEs:  array[HEID] of HE;		 --  HEs
@@ -227,7 +228,7 @@ ruleset i: UEID do
 
 		UEs[i].state = UE_IDLE &
 		(ismember(j,SNID) | ismember(j,AdvId)) & -- only responders and intruders
-		multisetcount (l:netA, true) < NetworkSize
+		multisetcount (l:netA, true) < NetworkASize
 
 		==>
     
@@ -594,7 +595,7 @@ ruleset i: AdvId do
 						((ismember(j, UEID) & k = M4) | 
 						(ismember(j, SNID) & (k = M1 | k = M5))) &
 						messages[l].mType = k & messages[m].mType = k &
-						multisetcount (t:netA, true) < NetworkSize
+						multisetcount (t:netA, true) < NetworkASize
 					
 						==>
 
