@@ -1,14 +1,14 @@
 --------------------------------------------------------------------------------
 --
---  Murphi Model of the Needham-Schroeder protocol
+--  Murphi Model of the PE3WAKA protocol
 --
 --------------------------------------------------------------------------------
 --
 --  version:      1.0
 --
---  written by:   Ulrich Stern
---  date:         Aug 1998
---  affiliation:  Stanford University (research associate)
+--  written by:   Bridget Vuong and Jeff Wear
+--  date:         Mar 2013
+--  affiliation:  Stanford University (Master's students)
 --
 --------------------------------------------------------------------------------
 --
@@ -37,23 +37,26 @@
 const
 
 	NumUEs:   3;   -- number of user entities
-	NumSNs:   1;   -- number of serving networks
-	NumHEs:   1;   -- number of home environments
+	NumSNs:   2;   -- number of serving networks
+	NumHEs:   2;   -- number of home environments
 	NumAdvs:  1;   -- number of intruders
-	NetworkASize:   3;   -- max. number of outstanding messages in network
-	NetworkBSize:	NumUEs;
+	NetworkASize:   1;   -- max. number of outstanding messages in network
+	NetworkBSize:	2 * NumUEs;
 	MaxKnowledge:   20;   -- max. number of messages intruder can remember
 
 
 -- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 type
-
-	UEID:  scalarset (NumUEs);
-	SNID:  scalarset (NumSNs);
-	HEID:  scalarset (NumHEs);  
+	UEID1: scalarset(1);
+	UEID2: scalarset(1);
+	UEID3: scalarset(1);
+	SN1: scalarset(1);
+	SN2: scalarset(1);
+	HE1: scalarset(1);
+	HE2: scalarset(1);
 	AdvId: scalarset (NumAdvs);
   
-	AgentId: union { UEID, SNID, HEID, AdvId };
+	AgentId: union { UEID1, UEID2, UEID3, SN1, SN2, HE1, HE2, AdvId };
 
 	MessageType : enum {
 		M1,
@@ -110,7 +113,7 @@ type
 		dest:	AgentId;		-- intended destination of message
 		mType:	MessageType;		-- type of message
 		key:	Key;		-- key used for encryption
-		transactionId: UEID;	-- used to group messages within a single authentication attempt
+		transactionId: AgentId;	-- used to group messages within a single authentication attempt
 		
 		uehe:	UEHEMessage;
 		snhe:	SNHEMessage;
@@ -144,12 +147,12 @@ type
 	};
 
 	SN : record
-		states:		 array[UEID] of SNStates;
-		CIDs:		 array[UEID] of AgentId;
-		UEIDs:		 array[UEID] of boolean;
-		CIDtoHEID: 	 array[UEID] of AgentId;
-		CIDtoAID:	 array[UEID] of AgentId; -- mapping from CID to AID should be equality
-		dhs:		 array[UEID] of dhs;
+		states:		 array[AgentId] of SNStates; -- keyed on transactionIds
+		CIDs:		 array[AgentId] of AgentId;
+		UEIDs:		 array[AgentId] of boolean;
+		CIDtoHEID: 	 array[AgentId] of AgentId;
+		CIDtoAID:	 array[AgentId] of AgentId; -- mapping from CID to AID should be equality
+		dhs:		 array[AgentId] of dhs;
 	end;
 
 	HEStates : enum {
@@ -159,17 +162,17 @@ type
 	};
 
 	HE : record
-		states:	array[UEID] of HEStates;
-		CIDs:		 array[UEID] of AgentId;
-		CHRESs:	array[UEID] of Key;
-		dhs:	array[UEID] of dhs;
+		states:	array[AgentId] of HEStates;
+		CIDs:	array[AgentId] of AgentId;
+		CHRESs:	array[AgentId] of Key;
+		dhs:	array[AgentId] of dhs;
 	end;
 
 	Adversary : record
-		UEIDs:		array[UEID] of boolean;	   -- known UEIDs
-		CIDs:		array[UEID] of boolean;	   -- known CIDs
-		CIDtoAIDs:	array[UEID] of boolean;	   -- known mappings between CID and AID
-		dhs:		array[UEID] of boolean;	   -- known dhs indexed by UEID
+		UEIDs:		array[AgentId] of boolean;	   -- known UEIDs
+		CIDs:		array[AgentId] of boolean;	   -- known CIDs
+		CIDtoAIDs:	array[AgentId] of boolean;	   -- known mappings between CID and AID
+		dhs:		array[AgentId] of boolean;	   -- known dhs indexed by UEID
 		messages:	multiset[MaxKnowledge] of Message;   -- known messages
 		--M4messages: multiset[MaxKnowledge] of Message;   -- known messages
 		--M5messages: multiset[MaxKnowledge] of Message;   -- known messages
@@ -180,13 +183,28 @@ type
 var    	       	       	       	       	       	 -- state variables for
 	netA: multiset[NetworkASize] of Message;  --  network interface A
 	netB: multiset[NetworkBSize] of Message;  --  network interface B
-	UEs:  array[UEID] of UE;       		 --  UEs
-	SNs:  array[SNID] of SN;		 --  SNs
-	HEs:  array[HEID] of HE;		 --  HEs
+	UEs:  array[AgentId] of UE;       		 --  UEs
+	SNs:  array[AgentId] of SN;		 --  SNs
+	HEs:  array[AgentId] of HE;		 --  HEs
 	adv:  array[AdvId] of Adversary;	 --  adversaries
 
 
 -- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+function isUE (agent: AgentId): boolean;
+begin
+	return ismember(agent, UEID1) | ismember(agent, UEID2) | ismember(agent, UEID3);
+end;
+
+function isSN (agent: AgentId): boolean;
+begin
+	return ismember(agent, SN1) | ismember(agent, SN2);
+end;
+
+function isHE (agent: AgentId): boolean;
+begin
+	return ismember(agent, HE1) | ismember(agent, HE2);
+end;
+
 function hasKey(key: Key; entity: AgentId): boolean;
 begin
 	if (isundefined(key.isSymkey)) then return true; end;
@@ -224,12 +242,13 @@ end;
 -- behavior of UEs
 
 -- UE starts protocol with SN or intruder j (message M1)
-ruleset i: UEID do
+ruleset i: AgentId do
 	ruleset j: AgentId do
 		rule 20 "UE starts protocol (message M1)"
 
+		isUE(i) &
 		UEs[i].state = UE_IDLE &
-		(ismember(j,SNID) | ismember(j,AdvId)) & -- only responders and intruders
+		((isSN(j) & UEs[i].SN = j) | ismember(j,AdvId)) & -- only responders and intruders
 		multisetcount (l:netA, true) < NetworkASize
 
 		==>
@@ -262,11 +281,12 @@ ruleset i: UEID do
 end;
 
 -- UE responds to message M4
-ruleset i: UEID do
+ruleset i: AgentId do
 	choose j: netA do
 		alias inM: netA[j] do
 			rule 20 "UE responds to message M4"
 
+			isUE(i) &
 			UEs[i].state = UE_WAIT_M4 &			-- UE expecting message M4
 			inM.dest = i &
 			ismember(inM.source,AdvId) &	-- only from intruder
@@ -310,11 +330,12 @@ end;
 --------------------------------------------------------------------------------
 -- behavior of SNs
 
-ruleset i: SNID do
+ruleset i: AgentId do
 	choose j: netA do
 		alias inM: netA[j] do
 			rule 20 "SN responds to message M1"
 
+			isSN(i) &
 			SNs[i].states[inM.transactionId] = SN_IDLE &
 			inM.dest = i &
 			ismember(inM.source,AdvId) &
@@ -350,6 +371,7 @@ ruleset i: SNID do
 
 			rule 20 "SN responds to message M5"
 
+			isSN(i) &
 			SNs[i].states[inM.transactionId] = SN_WAIT_M5 &
 			inM.dest = i &
 			ismember(inM.source,AdvId) &
@@ -392,14 +414,15 @@ ruleset i: SNID do
 	end;
 end;
 
-ruleset i: SNID do
+ruleset i: AgentId do
 	choose j: netB do
 		alias inM: netB[j] do
 			rule 20 "SN responds to message M3"
 
+			isSN(i) &
 			SNs[i].states[inM.transactionId] = SN_WAIT_M3 &
 			inM.dest = i &
-			ismember(inM.source,HEID) &
+			isHE(inM.source) &
 			inM.mType = M3 &
 			hasKey(inM.key, i)
 
@@ -436,9 +459,10 @@ ruleset i: SNID do
 
 			rule 20 "SN responds to message M7"
 
+			isSN(i) &
 			SNs[i].states[inM.transactionId] = SN_WAIT_M7 &
 			inM.dest = i &
-			ismember(inM.source,HEID) &
+			isHE(inM.source) &
 			inM.mType = M7 &
 			hasKey(inM.key, i) &
 
@@ -458,14 +482,15 @@ end;
 --------------------------------------------------------------------------------
 -- behavior of HEs
 
-ruleset i: HEID do
+ruleset i: AgentId do
 	choose j: netB do
 		alias inM: netB[j] do
 			rule 20 "HE responds to message M2"
 
+			isHE(i) &
 			HEs[i].states[inM.transactionId] = HE_IDLE &
 			inM.dest = i &
-			ismember(inM.source,SNID) &
+			isSN(inM.source) &
 			inM.mType = M2 &
 			hasKey(inM.key, i) &
 			hasKey(inM.uehe.key, i) &
@@ -505,9 +530,10 @@ ruleset i: HEID do
 
 			rule 20 "HE responds to message M6"
 
+			isHE(i) &
 			HEs[i].states[inM.transactionId] = HE_WAIT_M6 &
 			inM.dest = i &
-			ismember(inM.source,SNID) &
+			isSN(inM.source) &
 			inM.mType = M6 &
 			hasKey(inM.key, i) &
 
@@ -597,8 +623,8 @@ ruleset i: AdvId do
 					alias messages: adv[i].messages do
 						rule 90 "intruder generates message (recorded or frankenstein)"
 
-						((ismember(j, UEID) & k = M4) | 
-						(ismember(j, SNID) & (k = M1 | k = M5))) &
+						((isUE(j) & k = M4) | 
+						(isSN(j) & (k = M1 | k = M5))) &
 						messages[l].mType = k & messages[m].mType = k &
 						multisetcount (t:netA, true) < NetworkASize
 					
@@ -640,44 +666,65 @@ end;
 -- startstate
 --------------------------------------------------------------------------------
 startstate
-	-- initialize UEs
 	undefine UEs;
-	-- TODO: make SN, HE assignment many-to-one
-	for i: UEID do
-	    UEs[i].state := UE_IDLE;
-	    for s : SNID do
-		    UEs[i].SN := s;
-			for h : HEID do
-			    UEs[i].HE := h;
-		    end;
-		end;
-	end;
-
-	-- initialize SNs
 	undefine SNs;
-	for i: SNID do
-		for j: UEID do
-			SNs[i].states[j] := SN_IDLE;
-			SNs[i].UEIDs[j] := false;
-		end;
-	end;
-
-	-- initialize HEs
 	undefine HEs;
-	for i: HEID do
-		for j : UEID do
-			HEs[i].states[j] := HE_IDLE;
+	for i: AgentId do
+		-- initialize UEs
+		if isUE(i) then
+		    UEs[i].state := UE_IDLE;
+			if ismember(i, UEID1) then
+				for j: HE1 do
+					UEs[i].HE := j;
+				end;
+				for j: SN1 do
+					UEs[i].SN := j;
+				end;
+			end;
+			if ismember(i, UEID2) then
+				for j: HE2 do
+					UEs[i].HE := j;
+				end;
+				for j: SN1 do
+					UEs[i].SN := j;
+				end;
+			end;
+			if ismember(i, UEID3) then
+				for j: HE2 do
+					UEs[i].HE := j;
+				end;
+				for j: SN2 do
+					UEs[i].SN := j;
+				end;
+			end;
 		end;
-	end;
+
+		-- initialize SNs
+		if isSN(i) then
+			for j: AgentId do
+				SNs[i].states[j] := SN_IDLE;
+				SNs[i].UEIDs[j] := false;
+			end;
+		end;
+
+		-- initialize HEs
+		if isHE(i) then
+			for j : AgentId do
+				HEs[i].states[j] := HE_IDLE;
+			end;
+		end;
+	end;		
 
 	-- initialize intruders
 	undefine adv;
 	for i: AdvId do
-		for j: UEID do  
-			adv[i].UEIDs[j] := false;
-			adv[i].CIDs[j] := false;
-			adv[i].CIDtoAIDs[j] := false;
-			adv[i].dhs[j] := false;
+		for j: AgentId do
+			if isUE(j) then  
+				adv[i].UEIDs[j] := false;
+				adv[i].CIDs[j] := false;
+				adv[i].CIDtoAIDs[j] := false;
+				adv[i].dhs[j] := false;
+			end;
 		end;
 	end;
 
@@ -693,8 +740,8 @@ end;
 
 invariant "adversary does not learn identity of UE"
 	forall i: AdvId do
-		forall j: UEID do
-
+		forall j: AgentId do
+			isUE(j) &
 			UEs[j].state = UE_DONE
 			->
 			(!adv[i].UEIDs[j] & !adv[i].CIDs[j])
@@ -703,8 +750,8 @@ invariant "adversary does not learn identity of UE"
 
 invariant "adversary does not learn location of UE"
 	forall i: AdvId do
-		forall j: UEID do
-
+		forall j: AgentId do
+			isUE(j) &
 			UEs[j].state = UE_DONE
 			->
 			!adv[i].CIDtoAIDs[j]
@@ -712,9 +759,10 @@ invariant "adversary does not learn location of UE"
 	end;
 
 invariant "SN does not learn identity of UE"
-	forall i: SNID do
-		forall j: UEID do
-
+	forall i: AgentId do
+		forall j: AgentId do
+			isSN(i) &
+			isUE(j) &
 			SNs[i].states[j] = SN_DONE &
 			UEs[j].state = UE_DONE
 			->
@@ -723,7 +771,8 @@ invariant "SN does not learn identity of UE"
 	end;
 
 invariant "SN and UE agree on AID"
-	forall i: UEID do
+	forall i: AgentId do
+		isUE(i) &
 		SNs[UEs[i].SN].states[i] = SN_DONE &
 		UEs[i].state = UE_DONE
 		->
@@ -731,7 +780,8 @@ invariant "SN and UE agree on AID"
 	end;
 
 invariant "HE and UE are mutually authenticated"
-	forall i: UEID do
+	forall i: AgentId do
+		isUE(i) &
 		HEs[UEs[i].HE].states[i] = HE_DONE &
 		UEs[i].state = UE_DONE
 		->
@@ -739,7 +789,8 @@ invariant "HE and UE are mutually authenticated"
 	end;
 
 invariant "HE, SN, and UE agree that protocol has ended"
-	forall i: UEID do
+	forall i: AgentId do
+		isUE(i) &
 		SNs[UEs[i].SN].states[i] = SN_DONE
 		->
 		HEs[UEs[i].HE].states[i] = HE_DONE &
@@ -747,7 +798,8 @@ invariant "HE, SN, and UE agree that protocol has ended"
 	end;
 
 invariant "HE, SN, and UE agree on dhs"
-	forall i: UEID do
+	forall i: AgentId do
+		isUE(i) &
 		HEs[UEs[i].HE].states[i] = HE_DONE &
 		SNs[UEs[i].SN].states[i] = SN_DONE &
 		UEs[i].state = UE_DONE
@@ -757,7 +809,8 @@ invariant "HE, SN, and UE agree on dhs"
 	end;
 
 invariant "HE, SN, and UE agree on CID"
-	forall i: UEID do
+	forall i: AgentId do
+		isUE(i) &
 		HEs[UEs[i].HE].states[i] = HE_DONE &
 		SNs[UEs[i].SN].states[i] = SN_DONE &
 		UEs[i].state = UE_DONE
