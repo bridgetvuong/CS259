@@ -10,23 +10,6 @@
 --  date:         Mar 2013
 --  affiliation:  Stanford University (Master's students)
 --
---------------------------------------------------------------------------------
---
---  only the following three steps of the protocol are modeled:
---
---   3. A->B: {Na,A}Kb
---   6. B->A: {Na,Nb,B}Ka       -- A assumes it is talking to B
---   7. A->B: {Nb}Kb            -- B assumes it is talking to A
---
---   A: initiator, B: reponder
---
---------------------------------------------------------------------------------
-
---
---  this version has the following improvements:
---  * intruder always intercepts, agents only react to intruder
---
-
 
 --------------------------------------------------------------------------------
 -- constants, types and variables
@@ -109,9 +92,9 @@ type
 
 	-- Overall message
 	Message : record
-		source:	AgentId;		-- source of message
-		dest:	AgentId;		-- intended destination of message
-		mType:	MessageType;		-- type of message
+		source:	AgentId;	-- source of message
+		dest:	AgentId;	-- intended destination of message
+		mType:	MessageType;	-- type of message
 		key:	Key;		-- key used for encryption
 		transactionId: AgentId;	-- used to group messages within a single authentication attempt
 		
@@ -173,17 +156,15 @@ type
 		CIDs:		array[AgentId] of boolean;	   -- known CIDs
 		CIDtoAIDs:	array[AgentId] of boolean;	   -- known mappings between CID and AID
 		dhs:		array[AgentId] of boolean;	   -- known dhs indexed by UEID
-		messages:	multiset[MaxKnowledge] of Message;   -- known messages
-		--M4messages: multiset[MaxKnowledge] of Message;   -- known messages
-		--M5messages: multiset[MaxKnowledge] of Message;   -- known messages
+		messages:	multiset[MaxKnowledge] of Message; -- known messages
 	end;
     
 
 -- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 var    	       	       	       	       	       	 -- state variables for
-	netA: multiset[NetworkASize] of Message;  --  network interface A
-	netB: multiset[NetworkBSize] of Message;  --  network interface B
-	UEs:  array[AgentId] of UE;       		 --  UEs
+	netA: multiset[NetworkASize] of Message; --  network interface A
+	netB: multiset[NetworkBSize] of Message; --  network interface B
+	UEs:  array[AgentId] of UE;       	 --  UEs
 	SNs:  array[AgentId] of SN;		 --  SNs
 	HEs:  array[AgentId] of HE;		 --  HEs
 	adv:  array[AdvId] of Adversary;	 --  adversaries
@@ -287,15 +268,15 @@ ruleset i: AgentId do
 			rule 20 "UE responds to message M4"
 
 			isUE(i) &
-			UEs[i].state = UE_WAIT_M4 &			-- UE expecting message M4
+			UEs[i].state = UE_WAIT_M4 &	-- UE expecting message M4
 			inM.dest = i &
 			ismember(inM.source,AdvId) &	-- only from intruder
-			inM.mType = M4 &		      	-- message type is M4
+			inM.mType = M4 &		-- message type is M4
 			hasKey(inM.key, i) &		-- UE can decrypt message
 
-			hasKey(inM.uehe.key, i) & 		-- UE can decrypte message from HE
-			hasKey(inM.uehe.CHRES, i) &		-- CH/RES between UE and HEu is valid 
-			hasKey(inM.snue.key, i) & 		-- can decrypt with mtk
+			hasKey(inM.uehe.key, i) & 	-- UE can decrypte message from HE
+			hasKey(inM.uehe.CHRES, i) &	-- CH/RES between UE and HEu is valid 
+			hasKey(inM.snue.key, i) & 	-- can decrypt with mtk
 			inM.uehe.CID = UEs[i].CID & inM.snue.CID = UEs[i].CID	-- CID from HE and SN agree
 
 			==>
@@ -544,7 +525,7 @@ ruleset i: AgentId do
 			==>
 
 			var
-				outM: Message;   -- outgoing message
+				outM: Message;
 
 			begin
 				undefine outM;
